@@ -54,10 +54,10 @@ class ReliefConfig:
 FIELDS = ("width", "height", "depth", "artwork_relief", "text_relief",
           "text_size", "margin")
 DISPLAY = {"width":"Ancho de la caja", "height":"Alto de la caja",
-           "depth":"Profundidad total", "artwork_relief":"Relieve del dibujo",
-           "text_relief":"Relieve del nombre", "text_size":"Altura del nombre",
+           "depth":"Profundidad total", "artwork_relief":"Incrustación del dibujo (histórico)",
+           "text_relief":"Incrustación del nombre (histórico)", "text_size":"Altura del nombre",
            "margin":"Margen"}
-SCHEMA = 2
+SCHEMA = 3
 LAMP_FRONT = 2.0  # flat, printable translucent front plate (mm)
 LAMP_WALL = 3.0   # adhesive frame width (mm)
 
@@ -137,8 +137,53 @@ def _lamp_frame(cfg):
     return ring
 
 
+
+def _overlap_xy(first, second):
+    """Cheap collision filter before costly OpenCascade boolean operations."""
+    a, b = first.BoundBox, second.BoundBox
+    eps = 1e-7
+    return (a.XMin < b.XMax - eps and b.XMin < a.XMax - eps
+            and a.YMin < b.YMax - eps and b.YMin < a.YMax - eps)
+
+
+def _visible_layers(layers):
+    """Flatten SVG painter order into non-overlapping coplanar color inlays.
+
+    Newer SVG shapes obscure earlier ones. Only shapes whose XY bounds
+    overlap require a boolean subtraction; sparse drawings stay inexpensive.
+    """
+    import Part
+    upper = []
+    result = []
+    for solid, color in reversed(layers):
+        interfering = [other for other in upper if _overlap_xy(solid, other)]
+        visible = solid.cut(Part.makeCompound(interfering)) if interfering else solid
+        if not visible.isNull() and visible.Volume > 1e-7:
+            if not visible.isValid():
+                raise ValueError("El SVG contiene rutas inválidas o auto-intersecciones.")
+            result.append((visible, color))
+        upper.append(solid)
+    return result
+
+
+def _svg_color(obj, index):
+    """FreeCAD's SVG importer may provide per-face DiffuseColor values."""
+    view = obj.ViewObject
+    palette = getattr(view, "DiffuseColor", None)
+    if palette and index < len(palette):
+        raw = palette[index]
+    else:
+        raw = getattr(view, "ShapeColor", (0.3, 0.6, 0.85))
+    return tuple(round(max(0.0, min(1.0, float(v))), 4) for v in raw[:3])
+
+
 def make_parts(cfg, svg_xml):
-    """Return named valid solids for either the box or a two-piece lamp."""
+    """Generate a solid plaque or lamp with a perfectly flat multi-color face.
+
+    Every colored region and the caption occupies a recessed, non-overlapping
+    volume and ends at the same Z as the background. STL export preserves the
+    independent bodies; the slicer must import them as parts of one object.
+    """
     import FreeCAD as App
     import Part
     import Draft
@@ -148,74 +193,98 @@ def make_parts(cfg, svg_xml):
     tempdoc = App.newDocument("RSNameForgeBuild")
     filename = None
     try:
-        with tempfile.NamedTemporaryFile(suffix=".svg", delete=False, mode="w", encoding="utf-8") as stream:
+        with tempfile.NamedTemporaryFile(suffix=".svg", delete=False,
+                                         mode="w", encoding="utf-8") as stream:
             stream.write(svg_xml)
             filename = stream.name
         importSVG.insert(filename, tempdoc.Name)
         tempdoc.recompute()
+
+        # SVG areas are not arbitrarily capped. The previous 350-region guard
+        # rejected valid, printable illustrations. Import and retain colors.
         source = []
         for obj in tempdoc.Objects:
-            if hasattr(obj, "Shape") and not obj.Shape.isNull():
-                faces = _faces(obj.Shape)
-                if faces:
-                    source.extend(faces)
-                if len(source) > 350:
-                    raise ValueError("SVG con demasiadas regiones: simplifica el dibujo (máximo 350).")
+            if not hasattr(obj, "Shape") or obj.Shape.isNull():
+                continue
+            for index, face in enumerate(_faces(obj.Shape)):
+                if face.Area > 1e-5:
+                    source.append((face, _svg_color(obj, index)))
         if not source:
             raise ValueError("El SVG no contiene áreas cerradas. Convierte los trazos a contornos rellenos.")
-        artwork = Part.makeCompound(source)
+
         caption_band = max(cfg.text_size + 2 * cfg.margin, cfg.height * 0.25)
         picture_height = cfg.height - caption_band - 2 * cfg.margin
         if picture_height < 5:
             raise ValueError("La caja es demasiado baja para el dibujo y el nombre.")
-        artwork = _fit(artwork, cfg.width - 2 * cfg.margin, picture_height,
-                       cfg.width / 2, caption_band + cfg.margin + picture_height / 2,
-                       cfg.depth)
-        extruded = []
-        for face in _faces(artwork):
-            solid = face.extrude(App.Vector(0, 0, cfg.artwork_relief))
-            if not solid.Solids:
-                raise ValueError("Una región SVG no se puede extruir como sólido.")
-            extruded.append(solid)
 
-        # Create a ShapeString inside the same temporary document.
+        front_z = cfg.depth - LAMP_FRONT if cfg.lamp_mode else 0.0
+        front_thickness = LAMP_FRONT if cfg.lamp_mode else cfg.depth
+        # The face is flush; the 0.6 mm inlays preserve backing thickness.
+        art_inlay = min(0.6, front_thickness - 0.6)
+        text_inlay = art_inlay
+        if min(art_inlay, text_inlay) < 0.1:
+            raise ValueError("La profundidad no permite incrustar los colores.")
+
+        all_faces = Part.makeCompound([face for face, _ in source])
+        bb = all_faces.BoundBox
+        if bb.XLength < 1e-5 or bb.YLength < 1e-5:
+            raise ValueError("El SVG no tiene un contorno visible válido.")
+        scale = min((cfg.width - 2 * cfg.margin) / bb.XLength,
+                    picture_height / bb.YLength)
+        origin_x = cfg.width / 2 - scale * (bb.XMin + bb.XMax) / 2
+        origin_y = caption_band + cfg.margin + picture_height / 2 - scale * (bb.YMin + bb.YMax) / 2
+        layers = []
+        for face, color in source:
+            transformed = face.copy()
+            transformed.scale(scale)
+            transformed.translate(App.Vector(origin_x, origin_y,
+                                              cfg.depth - art_inlay - scale * bb.ZMin))
+            extruded = transformed.extrude(App.Vector(0, 0, art_inlay))
+            if not extruded.isValid() or not extruded.Solids:
+                raise ValueError("Una región del SVG no se pudo convertir en sólido.")
+            layers.append((extruded, color))
+
         caption = Draft.make_shapestring(cfg.text, cfg.font_path, cfg.text_size, 0)
         tempdoc.recompute()
-        caption_shape = caption.Shape
-        if caption_shape.isNull():
-            raise ValueError("La tipografía no pudo generar contornos.")
-        caption_shape = _fit(caption_shape, cfg.width - 2 * cfg.margin,
+        if caption.Shape.isNull():
+            raise ValueError("La fuente no pudo generar contornos.")
+        caption_shape = _fit(caption.Shape, cfg.width - 2 * cfg.margin,
                              min(cfg.text_size, caption_band - cfg.margin),
-                             cfg.width / 2, caption_band / 2, cfg.depth)
-        caption_solids = []
+                             cfg.width / 2, caption_band / 2,
+                             cfg.depth - text_inlay)
         for face in _faces(caption_shape):
-            solid = face.extrude(App.Vector(0, 0, cfg.text_relief))
-            if solid.Solids:
-                caption_solids.append(solid)
-        if not caption_solids:
+            solid = face.extrude(App.Vector(0, 0, text_inlay))
+            if solid.isValid() and solid.Solids:
+                layers.append((solid, (0.1, 0.65, 0.85)))
+        if len(layers) == len(source):
             raise ValueError("La fuente no produjo letras extruibles.")
 
-        # Solid box stays filled. Lamp front is separate, flat-backed
-        # and assembled at the top of the open-ended frame (Z = depth - 2).
-        face_z = cfg.depth - LAMP_FRONT if cfg.lamp_mode else 0.0
-        face_depth = LAMP_FRONT if cfg.lamp_mode else cfg.depth
-        joined = Part.makeBox(cfg.width, cfg.height, face_depth,
-                              App.Vector(0, 0, face_z))
-        for raised in extruded + caption_solids:
-            joined = joined.fuse(raised)
-        try:
-            joined = joined.removeSplitter()
-        except Exception:
-            pass
-        if not joined.isValid() or len(joined.Solids) != 1:
-            raise ValueError("No resultó un sólido único: prueba un SVG con regiones cerradas simples.")
+        visible = _visible_layers(layers)
+        if not visible:
+            raise ValueError("No quedaron áreas imprimibles después de procesar el SVG.")
+        cutters = Part.makeCompound([shape for shape, _ in visible])
+        backing = Part.makeBox(cfg.width, cfg.height, front_thickness,
+                               App.Vector(0, 0, front_z)).cut(cutters)
+        if not backing.isValid() or len(backing.Solids) != 1:
+            raise ValueError("No se pudo crear la base maciza con incrustaciones.")
+
+        # Fewer FreeCAD objects: one compound per distinct filament color.
+        groups = {}
+        for shape, color in visible:
+            groups.setdefault(color, []).append(shape)
+        base_name = "nameforge_frente" if cfg.lamp_mode else "nameforge_base"
+        result = [(base_name, "Base plana · color de fondo", backing,
+                   (0.93, 0.93, 0.93))]
+        for index, (color, shapes) in enumerate(groups.items(), 1):
+            part = Part.makeCompound(shapes)
+            if not part.isValid():
+                raise ValueError("No se pudo agrupar el color %d." % index)
+            result.append(("nameforge_color_%03d" % index,
+                           "Color %d · piezas coplanares" % index, part, color))
         if cfg.lamp_mode:
-            return [("nameforge_frente", "Frente translúcido · imprimir plano", joined,
-                     (0.82, 0.93, 1.0)),
-                    ("nameforge_marco", "Marco hueco · salida de cable", _lamp_frame(cfg),
-                     (0.32, 0.42, 0.53))]
-        return [("nameforge_solido", "Caja maciza · base plana", joined,
-                 (0.61, 0.80, 0.95))]
+            result.append(("nameforge_marco", "Marco hueco · salida de cable",
+                           _lamp_frame(cfg), (0.32, 0.42, 0.53)))
+        return result
     finally:
         if filename and os.path.isfile(filename):
             os.remove(filename)
@@ -225,7 +294,7 @@ def make_parts(cfg, svg_xml):
 
 
 def is_project(obj):
-    return hasattr(obj, "RSMakerReliefSchema") and obj.RSMakerReliefSchema in (1, SCHEMA)
+    return hasattr(obj, "RSMakerReliefSchema") and obj.RSMakerReliefSchema in (1, 2, SCHEMA)
 
 
 def project_from_selection():
@@ -321,7 +390,7 @@ class ReliefDialog(QtWidgets.QDialog):
         title.setStyleSheet("font-size: 17px; font-weight: 600;")
         layout.addWidget(title)
         note = QtWidgets.QLabel("Elige el modo con un check: caja maciza o lámpara "
-                                "con frente y marco hueco separados para imprimir planos.")
+                                "con frente multicolor liso y marco hueco separados para imprimir planos.")
         note.setWordWrap(True)
         layout.addWidget(note)
         form = QtWidgets.QFormLayout()
@@ -348,7 +417,7 @@ class ReliefDialog(QtWidgets.QDialog):
         form.addRow("Modo", self.lamp_mode)
         self.sizes = {}
         defaults = ReliefConfig()
-        for name in FIELDS:
+        for name in ("width", "height", "depth", "text_size", "margin"):
             field = QtWidgets.QDoubleSpinBox()
             field.setSuffix(" mm")
             field.setDecimals(2)
@@ -380,14 +449,14 @@ class ReliefDialog(QtWidgets.QDialog):
 
     def _mode_changed(self, *args):
         if self.lamp_mode.isChecked():
-            self.feedback.setText("Lámpara: frente de 2 mm + marco hueco de 3 mm "
-                                  "con salida trasera para cable. Imprime las dos piezas "
+            self.feedback.setText("Lámpara: frente liso multicolor de 2 mm + marco hueco de 3 mm "
+                                  "con salida trasera para cable. Imprime las piezas "
                                   "sobre caras planas y une el frente al marco. "
-                                  "Utiliza filamento translúcido en el frente.")
+                                  "Utiliza filamento translúcido en la base del frente.")
             self.create_button.setText("Regenerar" if self.root else "Crear lámpara") if hasattr(self, "create_button") else None
         else:
             self.feedback.setText("Caja: bloque completamente macizo, "
-                                  "cara inferior plana Z=0, texto y SVG en relieve.")
+                                  "cara inferior plana Z=0, colores y letras incrustados sin relieve.")
             self.create_button.setText("Regenerar" if self.root else "Crear caja") if hasattr(self, "create_button") else None
 
     def _browse(self, target, file_filter):

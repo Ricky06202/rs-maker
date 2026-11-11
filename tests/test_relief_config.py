@@ -52,6 +52,20 @@ class ReliefConfigTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             replace(self.cfg, text="  ").validate()
 
+    def test_region_count_not_arbitrarily_limited(self):
+        # More than 350 disjoint areas should pass the painter-order resolver.
+        class Box:
+            def __init__(self, i):
+                self.BoundBox = type("Bounds", (), {"XMin":float(i), "XMax":float(i)+0.5,
+                    "YMin":0.0,"YMax":0.5})()
+                self.Volume = 0.5
+            def isNull(self):
+                return False
+            def isValid(self):
+                return True
+        layers=[(Box(i), (0.1,0.2,0.3)) for i in range(351)]
+        self.assertEqual(len(relief._visible_layers(layers)),351)
+
     def test_one_checkbox_switches_modes(self):
         from dataclasses import replace
         self.assertFalse(self.cfg.lamp_mode)  # existing saved designs are still solid
