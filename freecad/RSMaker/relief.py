@@ -28,6 +28,7 @@ class ReliefConfig:
     lamp_mode: bool = False
     palette_colors: int = 8
     bridge_width: float = 1.6
+    quality_mode: str = "balanced"
 
     def validate(self):
         if not 30 <= self.width <= 430 or not 40 <= self.height <= 430:
@@ -50,6 +51,8 @@ class ReliefConfig:
             raise ValueError("Selecciona entre 2 y 16 colores para la caja.")
         if not 1.0 <= self.bridge_width <= 3.5:
             raise ValueError("El ancho del puente debe ser 1.0–3.5 mm.")
+        if self.quality_mode not in ("fast","balanced","high"):
+            raise ValueError("Selecciona calidad rápida, balanceada o alta.")
         if not self.font_path.lower().endswith((".ttf", ".otf")):
             raise ValueError("Selecciona una fuente .ttf o .otf.")
         if not os.path.isfile(self.font_path):
@@ -63,7 +66,7 @@ DISPLAY = {"width":"Ancho de la caja", "height":"Alto de la caja",
            "depth":"Profundidad total", "artwork_relief":"Incrustación del dibujo (histórico)",
            "text_relief":"Incrustación del nombre (histórico)", "text_size":"Altura del nombre",
            "margin":"Margen"}
-SCHEMA = 4
+SCHEMA = 5
 LAMP_FRONT = 2.0  # flat, printable translucent front plate (mm)
 LAMP_WALL = 3.0   # adhesive frame width (mm)
 
@@ -193,7 +196,7 @@ def make_parts(cfg, svg_xml, progress=None):
 
 
 def is_project(obj):
-    return hasattr(obj, "RSMakerReliefSchema") and obj.RSMakerReliefSchema in (1, 2, 3, SCHEMA)
+    return hasattr(obj, "RSMakerReliefSchema") and obj.RSMakerReliefSchema in (1, 2, 3, 4, SCHEMA)
 
 
 def project_from_selection():
@@ -214,7 +217,8 @@ def from_project(root):
     return ReliefConfig(svg_path=root.SVGPath, font_path=root.FontPath,
                         text=root.Caption, lamp_mode=bool(getattr(root, "LampMode", False)),
                         palette_colors=int(getattr(root,"PaletteColors",8)),
-                        bridge_width=float(getattr(bridge,"Value",bridge)), **values)
+                        bridge_width=float(getattr(bridge,"Value",bridge)),
+                        quality_mode=str(getattr(root,"QualityMode","balanced")), **values)
 
 
 def _properties(root, cfg, source, create=False):
@@ -235,7 +239,10 @@ def _properties(root, cfg, source, create=False):
         root.addProperty("App::PropertyInteger", "PaletteColors", "Fabricación")
     if not hasattr(root, "BridgeWidth"):
         root.addProperty("App::PropertyLength", "BridgeWidth", "Fabricación")
+    if not hasattr(root, "QualityMode"):
+        root.addProperty("App::PropertyString", "QualityMode", "Fabricación")
     root.RSMakerReliefSchema = SCHEMA
+    root.QualityMode = cfg.quality_mode
     root.LampMode = cfg.lamp_mode
     root.SVGPath = cfg.svg_path
     root.SVGData = source.decode("utf-8-sig") if cfg.svg_path.lower().endswith(".svg") else ""
@@ -363,6 +370,16 @@ class ReliefDialog(QtWidgets.QDialog):
         self.bridge.setSuffix(" mm")
         self.bridge.setToolTip("Solo lámpara: conecta los centros de A, O, B, R, D y otros recortes.")
         form.addRow("Ancho de los puentes", self.bridge)
+        self.quality = QtWidgets.QComboBox()
+        for label,value in (("Rápido · vista previa","fast"),
+                            ("Balanceado · recomendado","balanced"),
+                            ("Alta calidad · detalle fino","high")):
+            self.quality.addItem(label,value)
+        self.quality.setCurrentIndex(1)
+        self.quality.setToolTip(
+            "Controla la resolución y el suavizado; los límites de memoria "
+            "evitan que diseños grandes saturen FreeCAD.")
+        form.addRow("Calidad del contorno",self.quality)
         self.sizes = {}
         defaults = ReliefConfig()
         for name in ("width", "height", "depth", "text_size", "margin"):
@@ -407,6 +424,8 @@ class ReliefDialog(QtWidgets.QDialog):
                 field.setValue(getattr(cfg, name))
             self.palette.setValue(cfg.palette_colors)
             self.bridge.setValue(cfg.bridge_width)
+            quality_index=self.quality.findData(cfg.quality_mode)
+            self.quality.setCurrentIndex(max(0,quality_index))
             self.lamp_mode.setChecked(cfg.lamp_mode)
         self._ratio = self.sizes["width"].value() / self.sizes["height"].value()
         self._updating_link = False
@@ -481,6 +500,7 @@ class ReliefDialog(QtWidgets.QDialog):
         is_lamp = self.lamp_mode.isChecked()
         self.palette.setEnabled(not is_lamp)
         self.bridge.setEnabled(is_lamp)
+        self.quality.setEnabled(is_lamp)
         if is_lamp:
             self.feedback.setText(
                 "Lámpara: silueta exterior, detalles y nombre calados. "
@@ -503,81 +523,55 @@ class ReliefDialog(QtWidgets.QDialog):
             target.setText(chosen)
 
     def _build_lamp_masks_responsive(self, cfg, progress, dialog):
-        """Run only pure-Python mask arithmetic off the FreeCAD GUI thread.
+        """Qt signals keep the dialog alive while mask processing runs off UI.
 
-        QImage/QFont work happens before starting the worker on the GUI
-        thread. FreeCAD/OpenCascade geometry is still created afterward on
-        its owning GUI thread (FreeCAD shapes are not thread-safe).
+        FreeCAD/Part remain strictly on the GUI thread after the worker exits.
+        A cancel request is cooperative and we always await completion before
+        releasing the QThread, avoiding 'destroyed while thread is running'.
         """
-        import threading
-        import queue
         from . import lamp_stencil
+        from .nameforge_worker import MaskWorker
         from .lamp_stencil import QtCore
-        data = _read_source(cfg, self.root)
-        prepared = lamp_stencil.prepare_inputs(
-            cfg, data, os.path.splitext(cfg.svg_path)[1].lower(), progress)
-        events = queue.Queue()
-        cancel = threading.Event()
-        outcome = {"mask": None, "error": None}
+        data=_read_source(cfg,self.root)
+        prepared=lamp_stencil.prepare_inputs(
+            cfg,data,os.path.splitext(cfg.svg_path)[1].lower(),progress)
+        worker=MaskWorker(cfg,prepared,self)
+        loop=QtCore.QEventLoop(self)
 
-        def worker_progress(value, message):
-            if cancel.is_set():
-                raise RuntimeError("Generación cancelada.")
-            events.put(("progress", value, message))
+        def update(value,message):
+            # Emitted on the worker; Qt queues the slot on the UI thread.
+            # Avoid calling processEvents() recursively inside the slot.
+            dialog.setLabelText(message)
+            dialog.setValue(min(99,int(value)))
 
-        def worker():
-            try:
-                result = lamp_stencil.build_masks(
-                    cfg, prepared, worker_progress)
-                events.put(("result", result))
-            except Exception as exc:
-                events.put(("error", str(exc)))
+        def cancel():
+            worker.cancel()
+            dialog.setLabelText("Cancelando después de la etapa actual…")
+            dialog.setCancelButton(None)
 
-        thread = threading.Thread(
-            target=worker, name="RSMakerStencilWorker", daemon=True)
-        event_loop = QtCore.QEventLoop(self)
-        timer = QtCore.QTimer(self)
-
-        def poll():
-            if dialog.wasCanceled():
-                cancel.set()
-            while True:
-                try:
-                    event = events.get_nowait()
-                except queue.Empty:
-                    break
-                if event[0] == "progress":
-                    # Calls the UI's handler on the GUI thread only.
-                    if not cancel.is_set():
-                        try:
-                            progress(event[1], event[2])
-                        except RuntimeError:
-                            cancel.set()
-                elif event[0] == "result":
-                    outcome["mask"] = event[1]
-                    event_loop.quit()
-                elif event[0] == "error":
-                    outcome["error"] = event[1]
-                    event_loop.quit()
-
-        timer.timeout.connect(poll)
+        worker.progressed.connect(update)
+        dialog.canceled.connect(cancel)
+        worker.finished.connect(loop.quit)
         try:
-            thread.start()
-            timer.start(50)
-            if hasattr(event_loop, "exec"):
-                event_loop.exec()
-            else:
-                event_loop.exec_()
+            worker.start()
+            if worker.isRunning():
+                if hasattr(loop,"exec"):
+                    loop.exec()
+                else:
+                    loop.exec_()
+            worker.wait()
+            if worker.error:
+                raise RuntimeError(worker.error)
+            if dialog.wasCanceled():
+                raise RuntimeError("Generación cancelada.")
+            if worker.result is None:
+                raise RuntimeError("No se generó la máscara.")
+            return worker.result
         finally:
-            timer.stop()
-            timer.deleteLater()
-        if cancel.is_set() or dialog.wasCanceled():
-            raise RuntimeError("Generación cancelada; no se modificó el proyecto.")
-        if outcome["error"]:
-            raise RuntimeError(outcome["error"])
-        if outcome["mask"] is None:
-            raise RuntimeError("No se generó la máscara de la lámpara.")
-        return outcome["mask"]
+            if worker.isRunning():
+                worker.cancel()
+                worker.wait()
+            worker.deleteLater()
 
     def generate(self):
         cfg = ReliefConfig(svg_path=self.svg.text().strip(),
@@ -586,6 +580,7 @@ class ReliefDialog(QtWidgets.QDialog):
                            lamp_mode=self.lamp_mode.isChecked(),
                            palette_colors=self.palette.value(),
                            bridge_width=self.bridge.value(),
+                           quality_mode=str(self.quality.currentData()),
                            **{name:field.value() for name,field in self.sizes.items()})
         dialog = QtWidgets.QProgressDialog(
             "Preparando diseño...", "Cancelar", 0, 100, self)
@@ -593,6 +588,7 @@ class ReliefDialog(QtWidgets.QDialog):
         dialog.setMinimumDuration(0)
         dialog.setValue(0)
         self.create_button.setEnabled(False)
+        self.suggest_button.setEnabled(False)
         success = False
 
         def on_progress(value, message):
@@ -618,6 +614,7 @@ class ReliefDialog(QtWidgets.QDialog):
                     self, "No se pudo generar NameForge", str(exc))
         finally:
             self.create_button.setEnabled(True)
+            self.suggest_button.setEnabled(True)
             dialog.close()
             dialog.deleteLater()
         if success:
