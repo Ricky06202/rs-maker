@@ -26,6 +26,8 @@ class ReliefConfig:
     text_size: float = 19.0
     margin: float = 6.0
     lamp_mode: bool = False
+    palette_colors: int = 8
+    bridge_width: float = 1.6
 
     def validate(self):
         if not 30 <= self.width <= 430 or not 40 <= self.height <= 430:
@@ -42,8 +44,12 @@ class ReliefConfig:
             raise ValueError("Reduce el margen o aumenta las dimensiones.")
         if not self.text.strip() or len(self.text) > 80 or "\n" in self.text:
             raise ValueError("Escribe un nombre de una línea (1–80 caracteres).")
-        if not self.svg_path.lower().endswith(".svg"):
-            raise ValueError("Selecciona una ilustración SVG.")
+        if not self.svg_path.lower().endswith((".svg", ".png", ".jpg", ".jpeg", ".webp", ".bmp")):
+            raise ValueError("Selecciona SVG, PNG, JPG, WebP o BMP.")
+        if not 2 <= self.palette_colors <= 16:
+            raise ValueError("Selecciona entre 2 y 16 colores para la caja.")
+        if not 1.0 <= self.bridge_width <= 3.5:
+            raise ValueError("El ancho del puente debe ser 1.0–3.5 mm.")
         if not self.font_path.lower().endswith((".ttf", ".otf")):
             raise ValueError("Selecciona una fuente .ttf o .otf.")
         if not os.path.isfile(self.font_path):
@@ -57,7 +63,7 @@ DISPLAY = {"width":"Ancho de la caja", "height":"Alto de la caja",
            "depth":"Profundidad total", "artwork_relief":"Incrustación del dibujo (histórico)",
            "text_relief":"Incrustación del nombre (histórico)", "text_size":"Altura del nombre",
            "margin":"Margen"}
-SCHEMA = 3
+SCHEMA = 4
 LAMP_FRONT = 2.0  # flat, printable translucent front plate (mm)
 LAMP_WALL = 3.0   # adhesive frame width (mm)
 
@@ -187,7 +193,7 @@ def make_parts(cfg, svg_xml, progress=None):
 
 
 def is_project(obj):
-    return hasattr(obj, "RSMakerReliefSchema") and obj.RSMakerReliefSchema in (1, 2, SCHEMA)
+    return hasattr(obj, "RSMakerReliefSchema") and obj.RSMakerReliefSchema in (1, 2, 3, SCHEMA)
 
 
 def project_from_selection():
@@ -204,12 +210,14 @@ def project_from_selection():
 def from_project(root):
     values = {name:float(getattr(root, name.title().replace("_", "")).Value)
               for name in FIELDS}
+    bridge=getattr(root,"BridgeWidth",1.6)
     return ReliefConfig(svg_path=root.SVGPath, font_path=root.FontPath,
                         text=root.Caption, lamp_mode=bool(getattr(root, "LampMode", False)),
-                        **values)
+                        palette_colors=int(getattr(root,"PaletteColors",8)),
+                        bridge_width=float(getattr(bridge,"Value",bridge)), **values)
 
 
-def _properties(root, cfg, svg_xml, create=False):
+def _properties(root, cfg, source, create=False):
     if create:
         root.addProperty("App::PropertyInteger", "RSMakerReliefSchema", "RS Maker")
         root.addProperty("App::PropertyString", "SVGPath", "Origen")
@@ -220,21 +228,54 @@ def _properties(root, cfg, svg_xml, create=False):
             root.addProperty("App::PropertyLength", name.title().replace("_", ""), "Dimensiones (mm)")
     if not hasattr(root, "LampMode"):
         root.addProperty("App::PropertyBool", "LampMode", "Modo de fabricación")
+    import base64
+    if not hasattr(root, "SourceData"):
+        root.addProperty("App::PropertyString", "SourceData", "Origen")
+    if not hasattr(root, "PaletteColors"):
+        root.addProperty("App::PropertyInteger", "PaletteColors", "Fabricación")
+    if not hasattr(root, "BridgeWidth"):
+        root.addProperty("App::PropertyLength", "BridgeWidth", "Fabricación")
     root.RSMakerReliefSchema = SCHEMA
     root.LampMode = cfg.lamp_mode
     root.SVGPath = cfg.svg_path
-    root.SVGData = svg_xml
+    root.SVGData = source.decode("utf-8-sig") if cfg.svg_path.lower().endswith(".svg") else ""
+    root.SourceData = base64.b64encode(source).decode("ascii")
+    root.PaletteColors = cfg.palette_colors
+    root.BridgeWidth = cfg.bridge_width
     root.FontPath = cfg.font_path
     root.Caption = cfg.text
     for name in FIELDS:
         setattr(root, name.title().replace("_", ""), getattr(cfg, name))
 
 
+def _read_source(cfg, root):
+    """Preserve image/SVG bytes in FreeCAD, including when source file moves."""
+    import base64
+    if root and getattr(root, "SVGPath", None) == cfg.svg_path:
+        saved = getattr(root, "SourceData", "")
+        if saved:
+            return base64.b64decode(saved)
+        old_svg = getattr(root, "SVGData", "")
+        if old_svg:
+            return old_svg.encode("utf-8")
+    from .lamp_stencil import source_bytes
+    return source_bytes(cfg.svg_path)
+
+
 def save_project(cfg, root=None, progress=None):
     import FreeCAD as App
     cfg.validate()
-    xml = _svg_xml(cfg, getattr(root,"SVGData",None), getattr(root,"SVGPath",None))
-    parts = make_parts(cfg, xml, progress=progress)  # no mutation of the user's document on failure
+    source = _read_source(cfg, root)
+    from . import lamp_stencil
+    extension = os.path.splitext(cfg.svg_path)[1].lower()
+    if cfg.lamp_mode:
+        # A genuine open LED lightbox with a single, connected stencil front.
+        parts = lamp_stencil.make_lamp(cfg, source, extension, progress)
+    else:
+        # SVGs and images are posterized into a small, editable flat palette.
+        prepared = lamp_stencil.optimize_svg(
+            source, extension, colors=cfg.palette_colors, progress=progress)
+        parts = make_parts(cfg, prepared, progress=progress)
     doc = root.Document if root else (App.ActiveDocument or App.newDocument("RSMaker"))
     doc.openTransaction("RS Maker: crear/regenerar NameForge")
     try:
@@ -258,7 +299,7 @@ def save_project(cfg, root=None, progress=None):
         for key, obsolete in old.items():
             if key not in needed:
                 doc.removeObject(obsolete.Name)
-        _properties(root, cfg, xml, create)
+        _properties(root, cfg, source, create)
         root.Label = "RS Maker | NameForge | " + cfg.text + (" · Lámpara" if cfg.lamp_mode else " · Maciza")
         doc.recompute()
         doc.commitTransaction()
@@ -293,7 +334,7 @@ class ReliefDialog(QtWidgets.QDialog):
         self.caption = QtWidgets.QLineEdit()
         self.caption.setPlaceholderText("Ej.: RODRIGO")
         for name, target, file_filter in (
-                ("Archivo SVG", self.svg, "Imágenes SVG (*.svg)"),
+                ("Imagen o SVG", self.svg, "Diseños (*.svg *.png *.jpg *.jpeg *.webp *.bmp)"),
                 ("Tipografía", self.font, "Fuentes (*.ttf *.otf)")):
             row = QtWidgets.QHBoxLayout()
             row.addWidget(target)
@@ -303,11 +344,24 @@ class ReliefDialog(QtWidgets.QDialog):
             row.addWidget(browse)
             form.addRow(name, row)
         form.addRow("Nombre", self.caption)
-        self.lamp_mode = QtWidgets.QCheckBox("Lámpara (hueca, 2 piezas)")
+        self.lamp_mode = QtWidgets.QCheckBox("Lámpara: silueta y texto calados (2 piezas)")
         self.lamp_mode.setToolTip("Activado: frente de 2 mm + marco de 3 mm sin techo, "
                                   "cavidad para LED y salida para cable. "
                                   "Desactivado: caja 100 % maciza.")
         form.addRow("Modo", self.lamp_mode)
+        self.palette = QtWidgets.QSpinBox()
+        self.palette.setRange(2, 16)
+        self.palette.setValue(8)
+        self.palette.setToolTip("Solo caja: paleta reducida de la imagen o SVG.")
+        form.addRow("Colores de la caja", self.palette)
+        self.bridge = QtWidgets.QDoubleSpinBox()
+        self.bridge.setRange(1.0, 3.5)
+        self.bridge.setDecimals(1)
+        self.bridge.setSingleStep(0.2)
+        self.bridge.setValue(1.6)
+        self.bridge.setSuffix(" mm")
+        self.bridge.setToolTip("Solo lámpara: conecta los centros de A, O, B, R, D y otros recortes.")
+        form.addRow("Ancho de los puentes", self.bridge)
         self.sizes = {}
         defaults = ReliefConfig()
         for name in ("width", "height", "depth", "text_size", "margin"):
@@ -338,19 +392,27 @@ class ReliefDialog(QtWidgets.QDialog):
             self.caption.setText(cfg.text)
             for name, field in self.sizes.items():
                 field.setValue(getattr(cfg, name))
+            self.palette.setValue(cfg.palette_colors)
+            self.bridge.setValue(cfg.bridge_width)
             self.lamp_mode.setChecked(cfg.lamp_mode)
 
     def _mode_changed(self, *args):
-        if self.lamp_mode.isChecked():
-            self.feedback.setText("Lámpara: frente liso multicolor de 2 mm + marco hueco de 3 mm "
-                                  "con salida trasera para cable. Imprime las piezas "
-                                  "sobre caras planas y une el frente al marco. "
-                                  "Utiliza filamento translúcido en la base del frente.")
-            self.create_button.setText("Regenerar" if self.root else "Crear lámpara") if hasattr(self, "create_button") else None
+        is_lamp = self.lamp_mode.isChecked()
+        self.palette.setEnabled(not is_lamp)
+        self.bridge.setEnabled(is_lamp)
+        if is_lamp:
+            self.feedback.setText(
+                "Lámpara: silueta exterior, detalles y nombre calados. "
+                "Los centros de letras quedan sujetos con puentes; "
+                "el marco sigue el contorno. Imprime ambas piezas por separado.")
         else:
-            self.feedback.setText("Caja: bloque completamente macizo, "
-                                  "cara inferior plana Z=0, colores y letras incrustados sin relieve.")
-            self.create_button.setText("Regenerar" if self.root else "Crear caja") if hasattr(self, "create_button") else None
+            self.feedback.setText(
+                "Caja maciza: imagen o SVG se reduce a una paleta configurable "
+                "y sus colores se incrustan en la cara plana, sin relieve.")
+        if hasattr(self, "create_button"):
+            self.create_button.setText(
+                "Regenerar" if self.root else
+                ("Crear lámpara calada" if is_lamp else "Crear caja multicolor"))
 
     def _browse(self, target, file_filter):
         chosen, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Seleccionar archivo",
@@ -363,6 +425,8 @@ class ReliefDialog(QtWidgets.QDialog):
                            font_path=self.font.text().strip(),
                            text=self.caption.text().strip(),
                            lamp_mode=self.lamp_mode.isChecked(),
+                           palette_colors=self.palette.value(),
+                           bridge_width=self.bridge.value(),
                            **{name:field.value() for name,field in self.sizes.items()})
         dialog = QtWidgets.QProgressDialog("Preparando diseño...", "Cancelar", 0, 100, self)
         dialog.setWindowTitle("RS Maker · Generando NameForge")

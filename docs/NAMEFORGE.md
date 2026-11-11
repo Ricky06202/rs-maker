@@ -1,43 +1,31 @@
-# RS Maker · NameForge — frente plano multicolor
+# RS Maker · NameForge — imagen o SVG, caja multicolor y lámpara calada
 
-NameForge está dentro del banco de trabajo **RS Maker** (Crear → Figura SVG + nombre).
+En FreeCAD: **RS Maker → Crear… → NameForge**. Elige una imagen PNG/JPG/WebP/BMP o SVG, una tipografía TTF/OTF, escribe el nombre y configura las dimensiones de la pieza.
 
-El SVG puede contener **más de 350 regiones**. No hay un límite arbitrario por cantidad de regiones: la viabilidad depende de la complejidad de las rutas y de la capacidad de FreeCAD/OpenCascade. Los dibujos especialmente densos seguirán necesitando optimización si la generación se vuelve demasiado lenta.
+## Lámpara: silueta y nombre hueco (checkbox activado)
 
-## Uso
+1. La ilustración se convierte en una **silueta exterior** con detalles interiores abiertos para dejar pasar la luz. No se extruyen las miles de regiones del SVG original.
+2. El **nombre se corta completamente** a través del frente de 2 mm. No es un relieve ni una pieza añadida.
+3. Los centros de letras como **A, O, B, R, D, P** se unen a la superficie mediante **puentes de material**. Ancho configurable **1.0–3.5 mm**; valor inicial: 1.6 mm.
+4. El **marco de 3 mm sigue el contorno de la figura y de la placa del nombre**. Frontispicio y marco son dos cuerpos independientes. La profundidad total incluye el frente.
+5. La ilustración se rasteriza a una resolución controlada, se suavizan detalles demasiado finos, se abre el patrón en la silueta y se conserva un borde estructural. Un verificador de conectividad descarta islas diminutas y conecta las restantes con recorridos breves.
+6. Acomoda el frente con la cara plana en la cama del laminador. Revisa los puentes, voladizos, salidas de cable, material translúcido si corresponde, alimentación y disipación del LED antes de utilizarlo.
 
-1. Selecciona en FreeCAD el banco RS Maker → Crear → NameForge.
-2. Importa un SVG vectorial con contornos rellenos y colores planos, escoge una tipografía TTF/OTF e introduce el nombre.
-3. Ajusta ancho, alto, profundidad (mm), tamaño de fuente y margen.
-4. Modo caja: base **maciza**. Modo lámpara: frente plano de 2 mm y marco hueco con salida de cable.
-5. Crear genera una base y **un sólido independiente por cada color encontrado** (más el marco si es lámpara). Edítalo desde el grupo RS Maker.
-6. Exporta los STL. En el laminador, importa todas las piezas como **partes de un mismo objeto multicolor**, manteniendo las coordenadas originales, y asigna un filamento a cada color. No importes como objetos separados que el laminador recentre individualmente.
+**Importante:** una imagen con fondo complejo, transparencia irregular o trazos muy finos puede requerir ajustes en origen. La conversión automática simplifica detalles para mejorar la fabricabilidad. La capa del nombre es un recorte en el plástico, no una impresión multicolor.
 
-## Geometría de fabricación
+## Caja maciza (checkbox desactivado)
 
-- Las regiones del SVG y las letras son **incrustaciones**, no relieves. Su cara superior termina exactamente al mismo nivel que la base: ninguna supera Z = profundidad.
-- El generador recorta las regiones solapadas conforme al orden de dibujo del SVG; las áreas que quedan cubiertas no deben atravesar otras piezas de color.
-- El fondo se vacía **solo en los volúmenes locales de las incrustaciones**, que quedan ocupados por los cuerpos de otros colores. La caja maciza no tiene una cavidad interior.
-- La incrustación es de hasta 0.6 mm, conservando al menos 1.4 mm bajo el color en el frente de lámpara de 2 mm.
-- Los colores son los que pueda interpretar `importSVG` de FreeCAD. Gradientes, filtros SVG, imágenes raster, máscaras y SVG que no contenga superficies cerradas pueden requerir conversión previa a rutas y rellenos planos.
-- En lámpara, el frente multicolor es independiente del marco abierto. Esta versión no genera difusor, tapa trasera ni fijaciones para LEDs. Prueba temperaturas y conexiones eléctricas antes de utilizarla.
+La base permanece completamente llena. Las áreas de color del SVG o imagen se convierten en un **SVG simplificado con paleta de 2–16 colores planos**; los cuerpos se incrustan en el fondo con la cara visible coplanar, **sin relieve**. La cuantización puede perder gradientes y detalles.
 
-**Importante:** STL no guarda la asignación de filamentos. Se necesitan los STL alineados como partes de una sola pieza y asignar los colores en el laminador; guarda después el proyecto del laminador como 3MF. El complemento aún **no exporta 3MF coloreado directamente**.
+Para imprimir en varios colores, importa todos los STL como partes alineadas de **un mismo objeto** en el laminador y asigna filamentos. Los STL carecen de información de filamento; guarda después un proyecto 3MF. El complemento todavía no exporta 3MF multicolor directamente.
+
+## Edición y origen de imágenes
+
+Se almacenan el SVG o imagen fuente en los parámetros del documento FreeCAD (contenido embebido en base64). Así puede volver a editarse el mismo proyecto aunque el original haya cambiado de lugar. Se conservan ancho, alto, profundidad, tipografía, nombre, modo, número de colores y ancho de puentes.
 
 ## Compatibilidad y pruebas
 
-Se conserva la edición de proyectos NameForge anteriores mediante el esquema 3. Los campos `ArtworkRelief` y `TextRelief` históricos continúan almacenados para abrir modelos anteriores, pero se ignoran al generar: el frente siempre es liso. La tipografía local debe continuar disponible en la ruta original; el SVG queda embebido en el documento FreeCAD.
-
-La nueva generación necesita validación en FreeCAD 1.x con SVG reales (simples y de más de 350 regiones) y una impresión de prueba multicolor. La comprobación estática y las pruebas de CI no demuestran encaje físico, correcto mapeo de todos los SVG ni compatibilidad con todas las versiones de FreeCAD.
-
-
-## Motor optimizado (11 de noviembre de 2026)
-
-- Las rutas se resuelven en **2D** respetando el orden de superposición del SVG; se extruyen solo después de recortar el dibujo.
-- Un **índice espacial por celdas** evita evaluar todas las parejas de regiones cuando se encuentran alejadas. Los caminos superpuestos siguen siendo operaciones geométricas costosas.
-- La base se calcula restando incrustaciones de la **cara plana**, extruyendo la piel resultante y uniéndola a un bloque macizo de respaldo; ya no se corta un bloque volumétrico con cientos de pequeños sólidos.
-- Una caché de sesión, acotada a dos entradas por categoría, memoriza la importación SVG y el dibujo plano resuelto según sus medidas. Cambiar solamente el nombre reutiliza la geometría del dibujo. Cambiar el SVG o las medidas invalida automáticamente la entrada correspondiente.
-- Al generar aparece una ventana con estado, porcentaje y opción **Cancelar**. La cancelación se comprueba entre etapas y lotes; una sola operación booleana de OpenCascade puede seguir bloqueando brevemente la interfaz.
-- Se conservan los colores como partes independientes, el frente liso, los parámetros de tamaño y los dos modos macizo/lámpara.
-
-Estos cambios reducen comparaciones y operaciones 3D, pero **no prometen un tiempo fijo** para SVG complejos. Falta ejecutar el generador completo con FreeCAD 1.x y archivos de producción, medir los tiempos reales y comprobar el encaje multicolor impreso.
+- El esquema NameForge pasa a versión 4 y conserva los proyectos anteriores (esquemas 1, 2 y 3).
+- Se utiliza QtSvg/QImage y FreeCAD/Part incluidos con FreeCAD 1.x: no se exigen OpenCV, NumPy ni programas externos.
+- Hay pruebas Python de máscaras, huecos y puentes, además de las pruebas anteriores del proyecto.
+- **Todavía no se ha probado el circuito completo en la interfaz real de FreeCAD ni con una impresión física.** No debe asumirse que todas las siluetas tendrán suficiente resistencia ni que el cableado LED está certificado.

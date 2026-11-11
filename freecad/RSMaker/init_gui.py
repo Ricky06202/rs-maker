@@ -8,7 +8,7 @@ ICON = os.path.join(ROOT, "Resources", "Icons", "logo.svg")
 
 class RSMakerWorkbench(Gui.Workbench):
     MenuText = "RS Maker"
-    ToolTip = "Crea cajas puzzle o figuras SVG con nombre y relieve para imprimir"
+    ToolTip = "Crea cajas puzzle o figuras con nombre, cajas multicolor y lámparas caladas"
     Icon = ICON
 
     def Initialize(self):
