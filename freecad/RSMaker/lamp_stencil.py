@@ -193,6 +193,7 @@ def prepare_mask(cfg,source,extension,progress=None):
         max(1,round(cfg.bridge_width*scale/2)),
         min_island=max(2,round(.2*scale*scale)))
     if progress:progress(80,'Vectorizando máscara y marco')
+    connected,front_diagonals=core.repair_diagonal_contacts(connected,w,h)
     rings=core.contours(
         connected,w,h,tolerance=.85,min_area=scale*scale*.5)
 
@@ -203,83 +204,92 @@ def prepare_mask(cfg,source,extension,progress=None):
         for i in range(w*h))
     frame,frame_bridges,_=core.connect_islands(
         frame,canvas,w,h,max(1,round(scale)),min_island=2)
+    frame,frame_diagonals=core.repair_diagonal_contacts(frame,w,h)
     frame_rings=core.contours(
         frame,w,h,tolerance=.85,min_area=scale*scale*.6)
     return (
         core.to_svg(rings,w,h,scale),
         core.to_svg(frame_rings,w,h,scale),
         dict(pixels=(w,h),bridges=bridges+frame_bridges,
-             removed_islands=removed,paths=len(rings)))
+             removed_islands=removed,paths=len(rings),
+             front_mask=connected,frame_mask=frame,
+             scale=scale,diagonal_repairs=front_diagonals+frame_diagonals))
 
 
-def _to_part(svg_text,doc):
-    """Import the low-path-count optimized SVG as a FreeCAD planar face."""
-    import importSVG
+def _to_part(mask,w,h,pixels_per_mm,label):
+    """Build watertight faces directly from raster boundary loops.
+
+    The old importSVG round-trip placed many subpaths into one compound
+    SVG path, which could lead to FreeCAD's 'Wire is not closed' exception.
+    Native Part polygons explicitly repeat their starting vertex and
+    Part::FaceMakerBullseye assigns nested loops as holes.
+    """
+    import FreeCAD as App
     import Part
-    from .relief import _faces
-    path=None
-    before={obj.Name for obj in doc.Objects}
-    try:
-        with tempfile.NamedTemporaryFile(
-                mode='w',encoding='utf-8',suffix='.svg',
-                delete=False) as stream:
-            stream.write(svg_text)
-            path=stream.name
-        importSVG.insert(path,doc.Name)
-        doc.recompute()
-        shapes=[]
-        for obj in doc.Objects:
-            if (obj.Name in before or not hasattr(obj,'Shape')
-                    or obj.Shape.isNull()):
-                continue
-            shapes.extend(_faces(obj.Shape))
-        if not shapes:
-            raise ValueError('La máscara vectorial no produjo caras en FreeCAD.')
-        return Part.makeCompound(shapes) if len(shapes)>1 else shapes[0]
-    finally:
-        if path and os.path.exists(path):
-            os.unlink(path)
+    errors=[]
+    for tolerance in (0.85,0.25,0.0):
+        try:
+            paths=core.contours(
+                mask,w,h,tolerance=tolerance,
+                min_area=(pixels_per_mm*pixels_per_mm)*.5)
+            wires=[]
+            for index,ring in enumerate(paths):
+                if len(ring)<3:
+                    continue
+                vectors=[App.Vector(float(x)/pixels_per_mm,
+                                    float(y)/pixels_per_mm,0)
+                         for x,y in ring]
+                # Part.makePolygon returns an open wire unless the first
+                # vertex is explicitly repeated.
+                poly=Part.makePolygon(vectors+[vectors[0]])
+                wire=Part.Wire(poly.Edges)
+                if not wire.isClosed() or not wire.isValid():
+                    raise ValueError("Contorno %d inválido"%(index+1))
+                wires.append(wire)
+            if not wires:
+                raise ValueError("No hay contornos imprimibles")
+            face=Part.makeFace(wires,"Part::FaceMakerBullseye")
+            if face.isNull() or not face.Faces or not face.isValid():
+                raise ValueError("No se pudo cerrar la cara con huecos")
+            return face
+        except Exception as exc:
+            errors.append("%s: %s"%(tolerance,exc))
+    raise ValueError(
+        "No se pudo cerrar %s. Prueba aumentar el puente o el tamaño del "
+        "diseño. Detalle de tolerancias: %s"%(label,"; ".join(errors)))
 
 
 def make_lamp(cfg,source,extension,progress=None):
-    """Return two valid BReps: perforated front and silhouette-shaped frame."""
+    """Build two independent, connected solids from topology-checked masks."""
     import FreeCAD as App
     import Part
 
     facade,wall,meta=prepare_mask(cfg,source,extension,progress)
-    if progress:progress(88,'Construyendo frontal y marco en FreeCAD')
-    old=App.ActiveDocument
-    doc=App.newDocument('RSNameForgeStencil')
-    try:
-        front=_to_part(facade,doc).extrude(App.Vector(0,0,2.0))
-        front.translate(App.Vector(0,0,cfg.depth-2.0))
-        frame=_to_part(wall,doc).extrude(
-            App.Vector(0,0,cfg.depth-2.0))
-        bounds=frame.BoundBox
-        # Cable opening at the lower edge of the plaque.
-        notch=Part.makeBox(
-            5.5,5.0,3.0,
-            App.Vector(
-                (bounds.XMin+bounds.XMax)/2-2.75,
-                bounds.YMin-1.0,0))
-        frame=frame.cut(notch)
-        for shape,label in ((front,'frente'),(frame,'marco')):
-            if not shape.isValid() or len(shape.Solids)!=1:
-                raise ValueError(
-                    'El %s no es una sola pieza imprimible; '
-                    'ajusta puente, tamaño o detalle.'%label)
-        if progress:progress(98,'Frente con nombre calado listo')
-        return [
-            ('nameforge_frente',
-             'Frente silueta · nombre y detalles calados',
-             front,(.94,.94,.94)),
-            ('nameforge_marco',
-             'Marco siguiendo silueta · iluminación',
-             frame,(.20,.25,.34))]
-    finally:
-        App.closeDocument(doc.Name)
-        if old:
-            App.setActiveDocument(old.Name)
+    w,h=meta["pixels"]
+    scale=meta["scale"]
+    if progress:progress(88,"Cerrando contornos y huecos en FreeCAD")
+    front=_to_part(meta["front_mask"],w,h,scale,"frente").extrude(
+        App.Vector(0,0,2.0))
+    front.translate(App.Vector(0,0,cfg.depth-2.0))
+    frame=_to_part(meta["frame_mask"],w,h,scale,"marco").extrude(
+        App.Vector(0,0,cfg.depth-2.0))
+    bounds=frame.BoundBox
+    notch=Part.makeBox(
+        5.5,5.0,3.0,
+        App.Vector((bounds.XMin+bounds.XMax)/2-2.75,
+                   bounds.YMin-1.0,0))
+    frame=frame.cut(notch)
+    for shape,label in ((front,"frente"),(frame,"marco")):
+        if not shape.isValid() or len(shape.Solids)!=1:
+            raise ValueError(
+                "El %s no es una sola pieza imprimible; "
+                "ajusta puente, tamaño o detalle."%label)
+    if progress:progress(98,"Frente perforado y marco preparados")
+    return [
+        ("nameforge_frente","Frente silueta y nombre calados",
+         front,(.94,.94,.94)),
+        ("nameforge_marco","Marco siguiendo silueta",
+         frame,(.20,.25,.34))]
 
 
 def optimize_svg(source,extension,colors=8,progress=None):

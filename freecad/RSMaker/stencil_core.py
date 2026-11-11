@@ -196,6 +196,38 @@ def connect_islands(material,envelope,w,h,bridge_radius,min_island=2):
     return out,len(found),removed
 
 
+
+def repair_diagonal_contacts(mask,w,h):
+    """Resolve checkerboard pixel corners that become self-touching OCC wires.
+
+    A 4-connected body may have two background regions touching diagonally;
+    a vector boundary then revisits one vertex and produces an invalid wire.
+    Adding the minimum possible supporting material (one pixel per diagonal
+    contact) removes these pinches while preserving through-cut letter counters
+    and their existing structural bridges.
+    """
+    _validate(mask,w,h)
+    out=bytearray(mask)
+    count=0
+    for _ in range(8):
+        changed=0
+        for y in range(h-1):
+            row=y*w
+            for x in range(w-1):
+                i=row+x
+                a,b,c,d=out[i],out[i+1],out[i+w],out[i+w+1]
+                if a and d and not b and not c:
+                    out[i+1]=1
+                    changed+=1
+                elif b and c and not a and not d:
+                    out[i]=1
+                    changed+=1
+        count+=changed
+        if not changed:
+            break
+    return out,count
+
+
 def polygon_area(points):
     return sum(points[i][0]*points[(i+1)%len(points)][1]-
                points[(i+1)%len(points)][0]*points[i][1]

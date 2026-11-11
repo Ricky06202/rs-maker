@@ -51,6 +51,27 @@ class StencilTests(unittest.TestCase):
         self.assertEqual((bridges,removed),(0,1))
         self.assertFalse(out[25*w+30])
 
+    def test_diagonal_contact_repaired_without_detaching_islands(self):
+        w=h=45
+        material=bytearray(w*h)
+        rect(material,w,2,2,43,43)
+        rect(material,w,10,10,35,35,0)
+        # A pinched letter counter, with diagonally touching borders.
+        material[10*w+10]=1
+        material[11*w+11]=1
+        fixed,count=st.repair_diagonal_contacts(material,w,h)
+        self.assertGreaterEqual(count,1)
+        self.assertEqual(len(st.connected_components(fixed,w,h)),1)
+        # Pixel-level boundaries should no longer have checkerboard crossings.
+        for y in range(h-1):
+            for x in range(w-1):
+                i=y*w+x
+                a,b,c,d=fixed[i],fixed[i+1],fixed[i+w],fixed[i+w+1]
+                self.assertFalse(a and d and not b and not c)
+                self.assertFalse(b and c and not a and not d)
+        rings=st.contours(fixed,w,h,tolerance=.85)
+        self.assertTrue(rings)
+
     def test_svg_paths_preserve_counters(self):
         w=h=50
         m=bytearray(w*h)
