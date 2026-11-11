@@ -22,7 +22,7 @@ class CreateCatalog(QtWidgets.QDialog):
                      "Cinco caras jugables · muñeco y decoración · prototipo experimental",
                      "puzzle")
         self._option(layout, "NameForge · Figura SVG + nombre",
-                     "Un check: caja maciza o lámpara hueca · relieve y medidas editables",
+                     "Imagen o SVG · caja multicolor o lámpara con nombre calado",
                      "nameforge")
         cancel = QtWidgets.QPushButton("Cancelar")
         cancel.clicked.connect(self.reject)
