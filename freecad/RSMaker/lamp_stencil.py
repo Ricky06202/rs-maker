@@ -6,7 +6,9 @@ then converted to a compact, editable BRep with true holes and text bridges.
 """
 import os
 import tempfile
-from collections import Counter
+from collections import Counter, OrderedDict
+from hashlib import sha256
+from threading import Lock
 
 from . import stencil_core as core
 
@@ -20,6 +22,47 @@ except ImportError:
 
 
 _FORMATS=('.svg','.png','.jpg','.jpeg','.webp','.bmp')
+_ART_CACHE = OrderedDict()
+_ART_CACHE_LOCK = Lock()
+_MAX_CACHE_ENTRIES = 2
+
+
+def _cached_art(key):
+    with _ART_CACHE_LOCK:
+        value = _ART_CACHE.get(key)
+        if value is not None:
+            _ART_CACHE.move_to_end(key)
+        return value
+
+
+def _remember_art(key, ink, outer):
+    with _ART_CACHE_LOCK:
+        _ART_CACHE[key] = (bytes(ink), bytes(outer))
+        _ART_CACHE.move_to_end(key)
+        while len(_ART_CACHE) > _MAX_CACHE_ENTRIES:
+            _ART_CACHE.popitem(last=False)
+
+
+def _image_to_mask(image, threshold=45):
+    """Read QImage directly in the worker, avoiding huge temporary RGB lists."""
+    w, h = image.width(), image.height()
+    points=((0,0),(w-1,0),(0,h-1),(w-1,h-1))
+    corners=[]
+    for x,y in points:
+        p=image.pixel(x,y)
+        corners.append(((p>>16)&255,(p>>8)&255,p&255))
+    r0,g0,b0=Counter(corners).most_common(1)[0][0]
+    out=bytearray(w*h)
+    index=0
+    for y in range(h):
+        for x in range(w):
+            pixel=image.pixel(x,y)
+            red=(pixel>>16)&255
+            green=(pixel>>8)&255
+            blue=pixel&255
+            out[index]=int(max(abs(red-r0),abs(green-g0),abs(blue-b0))>threshold)
+            index+=1
+    return out
 
 
 def source_bytes(path,embedded=None):
@@ -122,7 +165,9 @@ def prepare_inputs(cfg,source,extension,progress=None):
 
     No Qt object is handed to the worker running the expensive pixel geometry.
     """
-    scale=max(1.6,min(4.0,1300/max(cfg.width,cfg.height)))
+    settings=core.quality_settings(getattr(cfg, "quality_mode", "balanced"),
+                                   cfg.width, cfg.height)
+    scale=settings["scale"]
     w=max(64,round(cfg.width*scale))
     h=max(64,round(cfg.height*scale))
     margin=max(2,round(cfg.margin*scale))
@@ -133,15 +178,17 @@ def prepare_inputs(cfg,source,extension,progress=None):
     if art_h<35 or art_w<35:
         raise ValueError("No hay sitio suficiente para silueta y nombre.")
     if progress:progress(8,"Preparando ilustración")
-    image=_qt_image(source,extension,art_w,art_h)
-    ink0=_fg_mask(_pixels(image),art_w,art_h,45)
+    digest=sha256(source).hexdigest()
+    key=(digest,extension,art_w,art_h,round(scale,3))
+    cached=_cached_art(key)
+    image=None if cached is not None else _qt_image(source,extension,art_w,art_h)
     tw=max(5,w-2*margin)
     th=max(5,band-2*margin)
     if progress:progress(17,"Preparando fuente y texto")
     letters=_font_pixels(cfg.text,cfg.font_path,tw,th)
     return dict(scale=scale,w=w,h=h,margin=margin,top_of_band=top_of_band,
-                art_h=art_h,art_w=art_w,ink0=ink0,letters=letters,
-                text_w=tw,text_h=th)
+                art_h=art_h,art_w=art_w,cache_key=key,cached=cached,
+                image=image,letters=letters,text_w=tw,text_h=th)
 
 
 def build_masks(cfg,prepared,progress=None):
@@ -151,13 +198,20 @@ def build_masks(cfg,prepared,progress=None):
     margin=prepared["margin"]
     top_of_band=prepared["top_of_band"]
     art_h,art_w=prepared["art_h"],prepared["art_w"]
-    ink0=prepared["ink0"]
-    if progress:progress(23,"Calculando contorno exterior")
-    closed=core.close(ink0,art_w,art_h,max(1,round(1.3*scale)))
-    filled=core.fill_holes(closed,art_w,art_h)
-    outer=core.morph(
-        core.keep_largest(filled,art_w,art_h),
-        art_w,art_h,max(1,round(1.0*scale)),"dilate")
+    cached=prepared.get("cached")
+    if cached is not None:
+        ink0,outer=cached
+        if progress:progress(30,"Reutilizando silueta ya procesada")
+    else:
+        if progress:progress(20,"Analizando píxeles de la imagen")
+        ink0=_image_to_mask(prepared["image"])
+        if progress:progress(23,"Calculando contorno exterior")
+        closed=core.close(ink0,art_w,art_h,max(1,round(1.3*scale)))
+        filled=core.fill_holes(closed,art_w,art_h)
+        outer=core.morph(
+            core.keep_largest(filled,art_w,art_h),
+            art_w,art_h,max(1,round(1.0*scale)),"dilate")
+        _remember_art(prepared["cache_key"],ink0,outer)
     if not any(outer):
         raise ValueError("La imagen no tiene una silueta reconocible.")
     rows=[y for y in range(art_h)
@@ -213,11 +267,18 @@ def build_masks(cfg,prepared,progress=None):
     rear_mask,_=core.repair_diagonal_contacts(rear_mask,w,h)
     if len(core.connected_components(rear_mask,w,h))!=1:
         raise ValueError("La tapa trasera no conserva una silueta conectada.")
-    if progress:progress(85,"Máscaras preparadas para el modelo CAD")
+    if progress:progress(82,"Suavizando contornos fuera de la interfaz")
+    mode=getattr(cfg,"quality_mode","balanced")
+    paths={
+        "front_paths": core.cleaned_contours(connected,w,h,mode),
+        "frame_paths": core.cleaned_contours(frame,w,h,mode),
+        "rear_paths": core.cleaned_contours(rear_mask,w,h,mode),
+    }
+    if progress:progress(85,"Contornos preparados para el modelo CAD")
     return dict(pixels=(w,h),bridges=bridges+frame_bridges,
                 removed_islands=removed,front_mask=connected,
                 frame_mask=frame,rear_mask=rear_mask,scale=scale,
-                diagonal_repairs=front_diagonals+frame_diagonals)
+                diagonal_repairs=front_diagonals+frame_diagonals,**paths)
 
 
 def prepare_mask(cfg,source,extension,progress=None):
