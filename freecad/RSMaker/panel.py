@@ -257,9 +257,21 @@ def export_parts(root):
         if yes!=QtWidgets.QMessageBox.Yes:return
     try:
         for obj,path in targets:
-            Mesh.export([obj],path)
+            # A lamp is assembled for preview: its raised front is at Z>0.
+            # Lower every mesh independently to Z=0 when exporting for the bed.
+            if hasattr(root, "RSMakerReliefSchema"):
+                import MeshPart
+                import FreeCAD as App
+                mesh = MeshPart.meshFromShape(
+                    Shape=obj.Shape, LinearDeflection=0.10,
+                    AngularDeflection=0.30, Relative=False)
+                mesh.translate(App.Vector(0, 0, -obj.Shape.BoundBox.ZMin))
+                mesh.write(path)
+            else:
+                Mesh.export([obj],path)
     except Exception as exc:
         QtWidgets.QMessageBox.critical(parent,"Error exportando",str(exc))
         return
     QtWidgets.QMessageBox.information(parent,"Exportación completada",
-        "%d STL independientes creados. Orienta y distribuye las piezas en tu laminador."%len(targets))
+        "%d STL independientes creados, con base en Z=0 para NameForge. "
+        "Orienta y distribuye las piezas en tu laminador."%len(targets))
