@@ -331,8 +331,8 @@ class ReliefDialog(QtWidgets.QDialog):
         title = QtWidgets.QLabel("Figura SVG + nombre · Caja o lámpara")
         title.setStyleSheet("font-size: 17px; font-weight: 600;")
         layout.addWidget(title)
-        note = QtWidgets.QLabel("Elige el modo con un check: caja maciza o lámpara "
-                                "con frente multicolor liso y marco hueco separados para imprimir planos.")
+        note = QtWidgets.QLabel("Elige caja maciza multicolor o lámpara de dos piezas: "
+                                "frente calado y carcasa con fondo integrado, sin tapa suelta.")
         note.setWordWrap(True)
         layout.addWidget(note)
         form = QtWidgets.QFormLayout()
@@ -352,10 +352,10 @@ class ReliefDialog(QtWidgets.QDialog):
             row.addWidget(browse)
             form.addRow(name, row)
         form.addRow("Nombre", self.caption)
-        self.lamp_mode = QtWidgets.QCheckBox("Lámpara: silueta y nombre calados (3 piezas)")
-        self.lamp_mode.setToolTip("Activado: frente de 2 mm, marco y tapa trasera de 2 mm, "
-                                  "cavidad para LED y salida para cable. "
-                                  "Desactivado: caja 100 % maciza.")
+        self.lamp_mode = QtWidgets.QCheckBox("Lámpara: frontal y carcasa integrada (2 piezas)")
+        self.lamp_mode.setToolTip("Activado: frente calado y carcasa maciza trasera "
+                                  "fusionada con el marco (2 piezas). Cavidad LED "
+                                  "y orificio de cable. Desactivado: caja maciza.")
         form.addRow("Modo", self.lamp_mode)
         self.palette = QtWidgets.QSpinBox()
         self.palette.setRange(2, 16)
@@ -505,8 +505,8 @@ class ReliefDialog(QtWidgets.QDialog):
             self.feedback.setText(
                 "Lámpara: silueta exterior, detalles y nombre calados. "
                 "Los centros de letras quedan sujetos con puentes; "
-                "el marco sigue el contorno y una tapa trasera cierra el conjunto. "
-                "Imprime las tres piezas por separado.")
+                "el marco y la tapa trasera están fusionados en una sola carcasa. "
+                "Imprime frontal y carcasa por separado.")
         else:
             self.feedback.setText(
                 "Caja maciza: imagen o SVG se reduce a una paleta configurable "

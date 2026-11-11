@@ -7,9 +7,9 @@ En FreeCAD: **RS Maker → Crear… → NameForge**. Elige una imagen PNG/JPG/We
 1. La ilustración se convierte en una **silueta exterior** con detalles interiores abiertos para dejar pasar la luz. No se extruyen las miles de regiones del SVG original.
 2. El **nombre se corta completamente** a través del frente de 2 mm. No es un relieve ni una pieza añadida.
 3. Los centros de letras como **A, O, B, R, D, P** se unen a la superficie mediante **puentes de material**. Ancho configurable **1.0–3.5 mm**; valor inicial: 1.6 mm.
-4. El **marco perimetral de 3 mm** sigue la silueta y delimita la cavidad de iluminación. El conjunto ahora tiene **tres piezas**: frente calado de 2 mm, marco y **tapa trasera lisa de 2 mm** con un orificio para el cable. La profundidad total incluye ambas tapas. El marco ocupa la profundidad restante. La tapa necesita una fijación adecuada (adhesivo o mecanismo a diseñar); todavía no incorpora clips ni tornillos.
+4. El **marco perimetral de 3 mm de ancho** sigue la silueta y delimita la cavidad de iluminación. La **tapa trasera de 2 mm está fusionada al marco** y forman **una sola carcasa imprimible**, con orificio para el cable. La lámpara genera **dos piezas**: un frente calado de 2 mm y una carcasa trasera cerrada. La profundidad total incluye ambos frentes; el espacio para LED queda dentro de la carcasa. El frontal aún necesita fijación al perímetro después de instalar la iluminación.
 5. La ilustración se rasteriza a una resolución controlada; los contornos se **suavizan ligeramente** conservando las puntas importantes. Se abre el patrón en la silueta y se conserva un borde estructural. Un verificador de conectividad descarta islas diminutas y conecta las restantes mediante puentes. Si el suavizado produce una cara inválida, el generador reintenta con contornos menos suavizados.
-6. Imprime frente, marco y tapa por separado, con sus caras planas apoyadas en la cama. Revisa el montaje de la tapa, puentes, voladizos, paso para cable, material translúcido si corresponde, alimentación y disipación del LED antes de utilizarlo.
+6. Imprime **el frente calado y la carcasa posterior** por separado, apoyados con sus caras planas en la cama. La tapa trasera **no aparece como objeto suelto**: ya es parte de la carcasa. Revisa el montaje del frente, los puentes, el paso para cable, el material translúcido si corresponde, la alimentación y la disipación del LED antes de utilizarlo.
 
 **Importante:** una imagen con fondo complejo, transparencia irregular o trazos muy finos puede requerir ajustes en origen. La conversión automática simplifica detalles para mejorar la fabricabilidad. La capa del nombre es un recorte en el plástico, no una impresión multicolor.
 
@@ -35,3 +35,9 @@ Se almacenan el SVG o imagen fuente en los parámetros del documento FreeCAD (co
 - Se utiliza QtSvg/QImage y FreeCAD/Part incluidos con FreeCAD 1.x: no se exigen OpenCV, NumPy ni programas externos.
 - Hay pruebas Python de máscaras, huecos y puentes, además de las pruebas anteriores del proyecto.
 - **Todavía no se ha probado el circuito completo en la interfaz real de FreeCAD ni con una impresión física.** No debe asumirse que todas las siluetas tendrán suficiente resistencia ni que el cableado LED está certificado.
+
+## Actualización — carcasa con fondo unido
+
+En modo lámpara el generador devuelve **exactamente dos cuerpos FreeCAD**, frontal calado (`nameforge_frente`) y carcasa cerrada (`nameforge_marco`). La segunda contiene marco + tapa trasera fusionados mediante una operación booleana de sólidos. La comprobación exige que el resultado sea válido y tenga **un único sólido**: un mero compuesto de dos cuerpos no es suficiente. El grupo `nameforge_tapa_trasera` de proyectos antiguos se elimina al regenerar el mismo proyecto, conservando el objeto `nameforge_marco` para mantener la compatibilidad de edición.
+
+El frente sigue separado para poder colocar los LED. El orificio trasero de cable continúa en el fondo y no se exporta una tapa separada. **Validación pendiente:** generar en FreeCAD real y comprobar el contacto de ambas superficies y tolerancias de montaje antes de imprimir.

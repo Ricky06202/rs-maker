@@ -342,10 +342,11 @@ def _to_part(mask,w,h,pixels_per_mm,label,paths=None):
 
 
 def make_lamp(cfg,source,extension,progress=None,mask_meta=None):
-    """Generate a closed-back 3-piece lightbox with a serviceable LED cavity.
+    """Generate two printable solids: cut-out front and closed-back housing.
 
-    The front and frame follow the silhouette; the printable back cover is
-    a solid sheet of the same outline (except a small cable pass-through).
+    The rear cover and the perimeter frame share a contact surface and are
+    fused into a single watertight housing. The separate front can be mounted
+    after fitting the lighting components.
     """
     import FreeCAD as App
     import Part
@@ -382,19 +383,26 @@ def make_lamp(cfg,source,extension,progress=None,mask_meta=None):
     port=Part.makeCylinder(2.5,rear_thickness+1.0,
                            App.Vector(cable_x,cable_y,-0.5))
     rear=rear.cut(port)
-    for shape,label in ((front,"frente"),(frame,"marco"),(rear,"tapa trasera")):
+    # The back and frame MUST form one printable part. Their coplanar joining
+    # faces meet at Z=rear_thickness; a compound would leave two solids.
+    housing=rear.fuse(frame)
+    try:
+        housing=housing.removeSplitter()
+    except Exception:
+        # removeSplitter is a cosmetic OCC operation: retaining a valid fused
+        # housing is preferable to losing the entire model.
+        pass
+    for shape,label in ((front,"frente"),(housing,"carcasa con fondo integrado")):
         if not shape.isValid() or len(shape.Solids)!=1:
             raise ValueError(
                 "El %s no es un sólido único imprimible; "
                 "ajusta puente, tamaño o detalle."%label)
-    if progress:progress(98,"Frente suave, marco y tapa trasera preparados")
+    if progress:progress(98,"Frente y carcasa trasera unidos, dos piezas listas")
     return [
         ("nameforge_frente","Frente de silueta · nombre calado",
          front,(.94,.94,.94)),
-        ("nameforge_marco","Marco para iluminación LED",
-         frame,(.20,.25,.34)),
-        ("nameforge_tapa_trasera","Tapa trasera lisa · salida de cable",
-         rear,(.72,.77,.82))]
+        ("nameforge_marco","Carcasa · marco y fondo integrados",
+         housing,(.20,.25,.34))]
 
 
 def optimize_svg(source,extension,colors=8,progress=None):
