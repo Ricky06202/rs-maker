@@ -52,6 +52,22 @@ class ReliefConfigTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             replace(self.cfg, text="  ").validate()
 
+    def test_one_checkbox_switches_modes(self):
+        from dataclasses import replace
+        self.assertFalse(self.cfg.lamp_mode)  # existing saved designs are still solid
+        lamp = replace(self.cfg, lamp_mode=True)
+        self.assertTrue(lamp.validate().lamp_mode)
+        self.assertEqual(relief.LAMP_FRONT, 2.0)
+        self.assertEqual(relief.LAMP_WALL, 3.0)
+
+    def test_lamp_needs_led_cavity_depth(self):
+        from dataclasses import replace
+        with self.assertRaisesRegex(ValueError, "lámpara"):
+            replace(self.cfg, lamp_mode=True, depth=8.0).validate()
+        self.assertEqual(replace(self.cfg, lamp_mode=True, depth=9.0).validate().depth, 9.0)
+        # The solid box can remain thin.
+        self.assertEqual(replace(self.cfg, lamp_mode=False, depth=2.0).validate().depth, 2.0)
+
     def test_svg_embedding_and_reload(self):
         content = relief._svg_xml(self.cfg)
         self.assertIn("<rect", content)
