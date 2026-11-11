@@ -422,6 +422,54 @@ def proportional_size(width,height,ratio,changed):
     return round(w,2),round(h,2)
 
 
+
+QUALITY_MODES = {
+    # Target px/mm and maximum total raster pixels. Higher modes prioritize
+    # fidelity; all modes remain bounded for complex or very large artwork.
+    "fast": dict(px_per_mm=3.5, max_pixels=650_000, tolerance=1.25,
+                 outer_smooth=0, inner_smooth=0),
+    "balanced": dict(px_per_mm=5.5, max_pixels=1_650_000, tolerance=.82,
+                     outer_smooth=1, inner_smooth=0),
+    "high": dict(px_per_mm=8.0, max_pixels=3_200_000, tolerance=.52,
+                 outer_smooth=2, inner_smooth=1),
+}
+
+
+def quality_settings(mode, width, height):
+    """Calculate effective bounded raster resolution for a lamp (millimeters)."""
+    from math import sqrt
+    if mode not in QUALITY_MODES:
+        raise ValueError("Calidad de NameForge desconocida")
+    if width <= 0 or height <= 0:
+        raise ValueError("Dimensiones inválidas para la calidad")
+    options = QUALITY_MODES[mode].copy()
+    scale = min(options["px_per_mm"],
+                sqrt(options["max_pixels"] / (float(width) * float(height))),
+                2500.0 / max(width, height))
+    options["scale"] = round(max(1.0, scale), 3)
+    return options
+
+
+def cleaned_contours(mask, width, height, mode="balanced", tolerance=None):
+    """Prepare vector loops away from the FreeCAD CAD/UI thread.
+
+    Outer outlines can be smoothed more than the internal lettering/detail
+    cutouts. CAD fallback can still request unsmoothed contours if required.
+    """
+    options = QUALITY_MODES[mode]
+    tol = options["tolerance"] if tolerance is None else tolerance
+    loops = contours(mask, width, height, tolerance=tol, min_area=.5)
+    output = []
+    for ring in loops:
+        smooth = (options["outer_smooth"] if polygon_area(ring)>0
+                  else options["inner_smooth"])
+        # Avoid doubling enormous geometry for little visible benefit.
+        if smooth and len(ring)<=2400:
+            ring = soften_contour(ring, iterations=smooth)
+        output.append(ring)
+    return output
+
+
 def to_svg(loops,w,h,pixels_per_mm,fill='#000000'):
     """Even-odd fill guarantees that counter loops become true through-holes."""
     def fmt(v):
