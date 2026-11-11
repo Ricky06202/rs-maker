@@ -38,6 +38,14 @@ class ReliefConfigTests(unittest.TestCase):
             handle.write(b"test-font")
         self.cfg = relief.ReliefConfig(svg_path=self.svg, font_path=self.font, text="Rodrigo")
 
+    def test_quality_mode_is_backward_compatible_and_validated(self):
+        from dataclasses import replace
+        self.assertEqual(self.cfg.quality_mode,"balanced")
+        for value in ("fast","balanced","high"):
+            self.assertEqual(replace(self.cfg,quality_mode=value).validate().quality_mode,value)
+        with self.assertRaisesRegex(ValueError, "calidad"):
+            replace(self.cfg, quality_mode="ultra").validate()
+
     def test_valid_full_solid_parameters(self):
         self.assertEqual(self.cfg.validate().depth, 12.0)
         self.assertGreaterEqual(self.cfg.width, 30)

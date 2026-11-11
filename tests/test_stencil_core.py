@@ -103,6 +103,32 @@ class StencilTests(unittest.TestCase):
         b=st.suggest_dimensions(intricate,w,h)
         self.assertGreaterEqual(b["height"], a["height"])
 
+    def test_quality_profiles_are_progressive_and_bounded(self):
+        modes=["fast","balanced","high"]
+        values=[st.quality_settings(mode,160,170) for mode in modes]
+        self.assertLess(values[0]["scale"], values[1]["scale"])
+        self.assertLess(values[1]["scale"], values[2]["scale"])
+        for mode in modes:
+            settings=st.quality_settings(mode,430,430)
+            pixels=(round(430*settings["scale"])**2)
+            self.assertLess(pixels,st.QUALITY_MODES[mode]["max_pixels"]*1.01)
+        with self.assertRaises(ValueError):
+            st.quality_settings("unsafe",150,150)
+
+    def test_quality_smoothing_preserves_hole_and_outline(self):
+        w=h=70
+        mask=bytearray(w*h)
+        rect(mask,w,5,5,65,65)
+        rect(mask,w,22,22,48,48,0)
+        counts=[]
+        for mode in ("fast","balanced","high"):
+            loops=st.cleaned_contours(mask,w,h,mode)
+            counts.append(len(loops))
+            self.assertEqual(len(loops),2)
+            self.assertTrue(any(st.polygon_area(p)>0 for p in loops))
+            self.assertTrue(any(st.polygon_area(p)<0 for p in loops))
+        self.assertEqual(counts,[2,2,2])
+
     def test_svg_paths_preserve_counters(self):
         w=h=50
         m=bytearray(w*h)
