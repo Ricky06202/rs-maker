@@ -66,6 +66,16 @@ class ReliefConfigTests(unittest.TestCase):
         layers=[(Box(i), (0.1,0.2,0.3)) for i in range(351)]
         self.assertEqual(len(relief._visible_layers(layers)),351)
 
+    def test_image_input_and_lamp_bridge_dimensions(self):
+        from dataclasses import replace
+        for extension in (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".svg"):
+            cfg = replace(self.cfg, svg_path=os.path.join(self.temp.name, "art"+extension))
+            self.assertEqual(cfg.validate().bridge_width, 1.6)
+        with self.assertRaisesRegex(ValueError, "puente"):
+            replace(self.cfg, bridge_width=0.4).validate()
+        with self.assertRaisesRegex(ValueError, "colores"):
+            replace(self.cfg, palette_colors=32).validate()
+
     def test_one_checkbox_switches_modes(self):
         from dataclasses import replace
         self.assertFalse(self.cfg.lamp_mode)  # existing saved designs are still solid
