@@ -117,11 +117,10 @@ def _font_pixels(text,font_path,w,h):
         QtGui.QFontDatabase.removeApplicationFont(fontid)
 
 
-def prepare_mask(cfg,source,extension,progress=None):
-    """Generate connected front and contour-following frame SVGs.
+def prepare_inputs(cfg,source,extension,progress=None):
+    """Do Qt painting/font loading on the GUI thread, then return raw masks.
 
-    The front is a single mask: all letters/details are real through-cuts,
-    while disconnected glyph centers become manufacturable bridges.
+    No Qt object is handed to the worker running the expensive pixel geometry.
     """
     scale=max(1.6,min(4.0,1300/max(cfg.width,cfg.height)))
     w=max(64,round(cfg.width*scale))
@@ -132,24 +131,38 @@ def prepare_mask(cfg,source,extension,progress=None):
     art_h=top_of_band+round(2*scale)-margin
     art_w=w-2*margin
     if art_h<35 or art_w<35:
-        raise ValueError('No hay sitio suficiente para silueta y nombre.')
+        raise ValueError("No hay sitio suficiente para silueta y nombre.")
+    if progress:progress(8,"Preparando ilustración")
+    image=_qt_image(source,extension,art_w,art_h)
+    ink0=_fg_mask(_pixels(image),art_w,art_h,45)
+    tw=max(5,w-2*margin)
+    th=max(5,band-2*margin)
+    if progress:progress(17,"Preparando fuente y texto")
+    letters=_font_pixels(cfg.text,cfg.font_path,tw,th)
+    return dict(scale=scale,w=w,h=h,margin=margin,top_of_band=top_of_band,
+                art_h=art_h,art_w=art_w,ink0=ink0,letters=letters,
+                text_w=tw,text_h=th)
 
-    if progress:progress(8,'Rasterizando ilustración para silueta')
-    sourceimg=_qt_image(source,extension,art_w,art_h)
-    ink0=_fg_mask(_pixels(sourceimg),art_w,art_h,45)
-    if progress:progress(23,'Calculando contorno exterior')
+
+def build_masks(cfg,prepared,progress=None):
+    """Heavy 2D raster/topology computation. Pure Python, safe on worker."""
+    scale=prepared["scale"]
+    w,h=prepared["w"],prepared["h"]
+    margin=prepared["margin"]
+    top_of_band=prepared["top_of_band"]
+    art_h,art_w=prepared["art_h"],prepared["art_w"]
+    ink0=prepared["ink0"]
+    if progress:progress(23,"Calculando contorno exterior")
     closed=core.close(ink0,art_w,art_h,max(1,round(1.3*scale)))
     filled=core.fill_holes(closed,art_w,art_h)
     outer=core.morph(
         core.keep_largest(filled,art_w,art_h),
-        art_w,art_h,max(1,round(1.0*scale)),'dilate')
+        art_w,art_h,max(1,round(1.0*scale)),"dilate")
     if not any(outer):
-        raise ValueError('La imagen no tiene una silueta reconocible.')
-
+        raise ValueError("La imagen no tiene una silueta reconocible.")
     rows=[y for y in range(art_h)
           if any(outer[y*art_w:(y+1)*art_w])]
     lower=max(rows)
-    # Ensure 2 mm overlap between artwork and the solid nameplate.
     dy=top_of_band+round(2*scale)-margin-lower
     canvas=bytearray(w*h)
     picture=bytearray(w*h)
@@ -161,22 +174,18 @@ def prepare_mask(cfg,source,extension,progress=None):
             canvas[d:d+art_w]=outer[o:o+art_w]
             picture[d:d+art_w]=ink0[o:o+art_w]
     for y in range(top_of_band,h):
-        canvas[y*w:(y+1)*w]=b'\x01'*w
-
-    # Preserve a solid border around each aperture to avoid hairline tips.
-    if progress:progress(40,'Abriendo detalles interiores')
+        canvas[y*w:(y+1)*w]=b"\x01"*w
+    if progress:progress(40,"Abriendo detalles interiores")
     within=core.morph(
-        canvas,w,h,max(1,round(1.5*scale)),'erode')
+        canvas,w,h,max(1,round(1.5*scale)),"erode")
     detail=core.open_mask(
         picture,w,h,max(1,round(.32*scale)))
     cut=bytearray(
         1 if detail[i] and within[i] and i//w<top_of_band else 0
         for i in range(w*h))
-
-    if progress:progress(58,'Calando el nombre en el frente')
-    tw=max(5,w-2*margin)
-    th=max(5,band-2*margin)
-    letters=_font_pixels(cfg.text,cfg.font_path,tw,th)
+    if progress:progress(58,"Calando el nombre en el frente")
+    tw,th=prepared["text_w"],prepared["text_h"]
+    letters=prepared["letters"]
     for y in range(th):
         dst=(top_of_band+margin+y)*w+margin
         if dst+tw<=w*h:
@@ -186,38 +195,42 @@ def prepare_mask(cfg,source,extension,progress=None):
     material=bytearray(
         1 if canvas[i] and not cut[i] else 0
         for i in range(w*h))
-
-    if progress:progress(70,'Conectando centros de letras con puentes')
+    if progress:progress(70,"Conectando centros de letras")
     connected,bridges,removed=core.connect_islands(
         material,canvas,w,h,
         max(1,round(cfg.bridge_width*scale/2)),
         min_island=max(2,round(.2*scale*scale)))
-    if progress:progress(80,'Vectorizando máscara y marco')
+    if progress:progress(79,"Reparando contornos")
     connected,front_diagonals=core.repair_diagonal_contacts(connected,w,h)
-    rings=core.contours(
-        connected,w,h,tolerance=.85,min_area=scale*scale*.5)
-
-    inner=core.morph(
-        canvas,w,h,max(1,round(3.0*scale)),'erode')
+    inner=core.morph(canvas,w,h,max(1,round(3.0*scale)),"erode")
     frame=bytearray(
         1 if canvas[i] and not inner[i] else 0
         for i in range(w*h))
     frame,frame_bridges,_=core.connect_islands(
         frame,canvas,w,h,max(1,round(scale)),min_island=2)
     frame,frame_diagonals=core.repair_diagonal_contacts(frame,w,h)
-    frame_rings=core.contours(
-        frame,w,h,tolerance=.85,min_area=scale*scale*.6)
     rear_mask=core.fill_holes(connected,w,h)
     rear_mask,_=core.repair_diagonal_contacts(rear_mask,w,h)
-    if len(core.connected_components(rear_mask,w,h)) != 1:
+    if len(core.connected_components(rear_mask,w,h))!=1:
         raise ValueError("La tapa trasera no conserva una silueta conectada.")
-    return (
-        core.to_svg(rings,w,h,scale),
-        core.to_svg(frame_rings,w,h,scale),
-        dict(pixels=(w,h),bridges=bridges+frame_bridges,
-             removed_islands=removed,paths=len(rings),
-             front_mask=connected,frame_mask=frame,rear_mask=rear_mask,
-             scale=scale,diagonal_repairs=front_diagonals+frame_diagonals))
+    if progress:progress(85,"Máscaras preparadas para el modelo CAD")
+    return dict(pixels=(w,h),bridges=bridges+frame_bridges,
+                removed_islands=removed,front_mask=connected,
+                frame_mask=frame,rear_mask=rear_mask,scale=scale,
+                diagonal_repairs=front_diagonals+frame_diagonals)
+
+
+def prepare_mask(cfg,source,extension,progress=None):
+    """Compatibility API with explicit, optional SVG diagnostic previews."""
+    prepared=prepare_inputs(cfg,source,extension,progress)
+    meta=build_masks(cfg,prepared,progress)
+    w,h=meta["pixels"]
+    rings=core.contours(meta["front_mask"],w,h,tolerance=.85,
+                        min_area=meta["scale"]**2*.5)
+    frame_rings=core.contours(meta["frame_mask"],w,h,tolerance=.85,
+                              min_area=meta["scale"]**2*.6)
+    return (core.to_svg(rings,w,h,meta["scale"]),
+            core.to_svg(frame_rings,w,h,meta["scale"]),meta)
 
 
 def _to_part(mask,w,h,pixels_per_mm,label):
@@ -266,7 +279,7 @@ def _to_part(mask,w,h,pixels_per_mm,label):
         "diseño. Detalle de tolerancias: %s"%(label,"; ".join(errors)))
 
 
-def make_lamp(cfg,source,extension,progress=None):
+def make_lamp(cfg,source,extension,progress=None,mask_meta=None):
     """Generate a closed-back 3-piece lightbox with a serviceable LED cavity.
 
     The front and frame follow the silhouette; the printable back cover is
@@ -275,7 +288,9 @@ def make_lamp(cfg,source,extension,progress=None):
     import FreeCAD as App
     import Part
 
-    facade,wall,meta=prepare_mask(cfg,source,extension,progress)
+    # Skip re-vectorization: the native Part faces are built from masks.
+    meta=mask_meta if mask_meta is not None else build_masks(
+        cfg,prepare_inputs(cfg,source,extension,progress),progress)
     w,h=meta["pixels"]
     scale=meta["scale"]
     front_thickness=2.0
