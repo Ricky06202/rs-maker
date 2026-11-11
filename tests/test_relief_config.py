@@ -1,0 +1,69 @@
+"""Pure-Python validation of NameForge settings (no FreeCAD installation needed)."""
+import importlib
+import os
+import sys
+import tempfile
+import types
+import unittest
+
+
+def load_relief():
+    try:
+        return importlib.import_module("freecad.RSMaker.relief")
+    except ImportError as exc:
+        if "PySide" not in str(exc):
+            raise
+        # Only QDialog is needed while defining the GUI class.
+        side = types.ModuleType("PySide2")
+        side.QtWidgets = types.SimpleNamespace(QDialog=type("QDialog", (object,), {}))
+        sys.modules["PySide2"] = side
+        try:
+            return importlib.import_module("freecad.RSMaker.relief")
+        finally:
+            sys.modules.pop("PySide2", None)
+
+
+relief = load_relief()
+
+
+class ReliefConfigTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.svg = os.path.join(self.temp.name, "art.svg")
+        self.font = os.path.join(self.temp.name, "font.ttf")
+        with open(self.svg, "w", encoding="utf-8") as handle:
+            handle.write('<svg xmlns="http://www.w3.org/2000/svg"><rect width="10" height="10"/></svg>')
+        with open(self.font, "wb") as handle:
+            handle.write(b"test-font")
+        self.cfg = relief.ReliefConfig(svg_path=self.svg, font_path=self.font, text="Rodrigo")
+
+    def test_valid_full_solid_parameters(self):
+        self.assertEqual(self.cfg.validate().depth, 12.0)
+        self.assertGreaterEqual(self.cfg.width, 30)
+
+    def test_rejects_too_thin_base(self):
+        from dataclasses import replace
+        with self.assertRaisesRegex(ValueError, "profundidad"):
+            replace(self.cfg, depth=0.4).validate()
+
+    def test_rejects_empty_caption(self):
+        from dataclasses import replace
+        with self.assertRaises(ValueError):
+            replace(self.cfg, text="  ").validate()
+
+    def test_svg_embedding_and_reload(self):
+        content = relief._svg_xml(self.cfg)
+        self.assertIn("<rect", content)
+        os.remove(self.svg)
+        self.assertEqual(relief._svg_xml(self.cfg, content, self.svg), content)
+
+    def test_does_not_accept_external_xml_entities(self):
+        with open(self.svg, "w", encoding="utf-8") as handle:
+            handle.write('<!DOCTYPE svg [<!ENTITY evil SYSTEM "file:///etc/passwd">]><svg/>')
+        with self.assertRaisesRegex(ValueError, "DOCTYPE"):
+            relief._svg_xml(self.cfg)
+
+
+if __name__ == "__main__":
+    unittest.main()
