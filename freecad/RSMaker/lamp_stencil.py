@@ -237,7 +237,7 @@ def _to_part(mask,w,h,pixels_per_mm,label):
                 if len(ring)<3:
                     continue
                 vectors=[App.Vector(float(x)/pixels_per_mm,
-                                    float(y)/pixels_per_mm,0)
+                                    float(h-y)/pixels_per_mm,0)
                          for x,y in ring]
                 # Part.makePolygon returns an open wire unless the first
                 # vertex is explicitly repeated.
