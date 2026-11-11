@@ -262,7 +262,7 @@ def _read_source(cfg, root):
     return source_bytes(cfg.svg_path)
 
 
-def save_project(cfg, root=None, progress=None):
+def save_project(cfg, root=None, progress=None, lamp_mask_meta=None):
     import FreeCAD as App
     cfg.validate()
     source = _read_source(cfg, root)
@@ -270,7 +270,8 @@ def save_project(cfg, root=None, progress=None):
     extension = os.path.splitext(cfg.svg_path)[1].lower()
     if cfg.lamp_mode:
         # A genuine open LED lightbox with a single, connected stencil front.
-        parts = lamp_stencil.make_lamp(cfg, source, extension, progress)
+        parts = lamp_stencil.make_lamp(cfg, source, extension, progress,
+                                       mask_meta=lamp_mask_meta)
     else:
         # SVGs and images are posterized into a small, editable flat palette.
         prepared = lamp_stencil.optimize_svg(
@@ -501,6 +502,83 @@ class ReliefDialog(QtWidgets.QDialog):
         if chosen:
             target.setText(chosen)
 
+    def _build_lamp_masks_responsive(self, cfg, progress, dialog):
+        """Run only pure-Python mask arithmetic off the FreeCAD GUI thread.
+
+        QImage/QFont work happens before starting the worker on the GUI
+        thread. FreeCAD/OpenCascade geometry is still created afterward on
+        its owning GUI thread (FreeCAD shapes are not thread-safe).
+        """
+        import threading
+        import queue
+        from . import lamp_stencil
+        from .lamp_stencil import QtCore
+        data = _read_source(cfg, self.root)
+        prepared = lamp_stencil.prepare_inputs(
+            cfg, data, os.path.splitext(cfg.svg_path)[1].lower(), progress)
+        events = queue.Queue()
+        cancel = threading.Event()
+        outcome = {"mask": None, "error": None}
+
+        def worker_progress(value, message):
+            if cancel.is_set():
+                raise RuntimeError("Generación cancelada.")
+            events.put(("progress", value, message))
+
+        def worker():
+            try:
+                result = lamp_stencil.build_masks(
+                    cfg, prepared, worker_progress)
+                events.put(("result", result))
+            except Exception as exc:
+                events.put(("error", str(exc)))
+
+        thread = threading.Thread(
+            target=worker, name="RSMakerStencilWorker", daemon=True)
+        event_loop = QtCore.QEventLoop(self)
+        timer = QtCore.QTimer(self)
+
+        def poll():
+            if dialog.wasCanceled():
+                cancel.set()
+            while True:
+                try:
+                    event = events.get_nowait()
+                except queue.Empty:
+                    break
+                if event[0] == "progress":
+                    # Calls the UI's handler on the GUI thread only.
+                    if not cancel.is_set():
+                        try:
+                            progress(event[1], event[2])
+                        except RuntimeError:
+                            cancel.set()
+                elif event[0] == "result":
+                    outcome["mask"] = event[1]
+                    event_loop.quit()
+                elif event[0] == "error":
+                    outcome["error"] = event[1]
+                    event_loop.quit()
+
+        timer.timeout.connect(poll)
+        try:
+            thread.start()
+            timer.start(50)
+            if hasattr(event_loop, "exec"):
+                event_loop.exec()
+            else:
+                event_loop.exec_()
+        finally:
+            timer.stop()
+            timer.deleteLater()
+        if cancel.is_set() or dialog.wasCanceled():
+            raise RuntimeError("Generación cancelada; no se modificó el proyecto.")
+        if outcome["error"]:
+            raise RuntimeError(outcome["error"])
+        if outcome["mask"] is None:
+            raise RuntimeError("No se generó la máscara de la lámpara.")
+        return outcome["mask"]
+
     def generate(self):
         cfg = ReliefConfig(svg_path=self.svg.text().strip(),
                            font_path=self.font.text().strip(),
@@ -509,10 +587,13 @@ class ReliefDialog(QtWidgets.QDialog):
                            palette_colors=self.palette.value(),
                            bridge_width=self.bridge.value(),
                            **{name:field.value() for name,field in self.sizes.items()})
-        dialog = QtWidgets.QProgressDialog("Preparando diseño...", "Cancelar", 0, 100, self)
+        dialog = QtWidgets.QProgressDialog(
+            "Preparando diseño...", "Cancelar", 0, 100, self)
         dialog.setWindowTitle("RS Maker · Generando NameForge")
         dialog.setMinimumDuration(0)
         dialog.setValue(0)
+        self.create_button.setEnabled(False)
+        success = False
 
         def on_progress(value, message):
             dialog.setLabelText(message)
@@ -522,14 +603,25 @@ class ReliefDialog(QtWidgets.QDialog):
                 raise RuntimeError("Generación cancelada; no se modificó el proyecto.")
 
         try:
-            self.root = save_project(cfg, self.root, progress=on_progress)
+            cfg.validate()
+            meta = (self._build_lamp_masks_responsive(cfg, on_progress, dialog)
+                    if cfg.lamp_mode else None)
+            if cfg.lamp_mode:
+                on_progress(86, "Construyendo sólidos en FreeCAD (fase CAD)")
+            self.root = save_project(
+                cfg, self.root, progress=on_progress, lamp_mask_meta=meta)
             dialog.setValue(100)
+            success = True
         except Exception as exc:
-            QtWidgets.QMessageBox.critical(self, "No se pudo generar NameForge", str(exc))
-            return
+            if "cancelada" not in str(exc).lower():
+                QtWidgets.QMessageBox.critical(
+                    self, "No se pudo generar NameForge", str(exc))
         finally:
+            self.create_button.setEnabled(True)
             dialog.close()
-        self.accept()
+            dialog.deleteLater()
+        if success:
+            self.accept()
 
 
 def show_dialog(root=None):
