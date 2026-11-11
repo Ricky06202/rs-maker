@@ -180,120 +180,10 @@ def _svg_color(obj, index):
     return tuple(round(max(0.0, min(1.0, float(v))), 4) for v in raw[:3])
 
 
-def make_parts(cfg, svg_xml):
-    """Generate a solid plaque or lamp with a perfectly flat multi-color face.
-
-    Every colored region and the caption occupies a recessed, non-overlapping
-    volume and ends at the same Z as the background. STL export preserves the
-    independent bodies; the slicer must import them as parts of one object.
-    """
-    import FreeCAD as App
-    import Part
-    import Draft
-    import importSVG
-
-    old = App.ActiveDocument
-    tempdoc = App.newDocument("RSNameForgeBuild")
-    filename = None
-    try:
-        with tempfile.NamedTemporaryFile(suffix=".svg", delete=False,
-                                         mode="w", encoding="utf-8") as stream:
-            stream.write(svg_xml)
-            filename = stream.name
-        importSVG.insert(filename, tempdoc.Name)
-        tempdoc.recompute()
-
-        # SVG areas are not arbitrarily capped. The previous 350-region guard
-        # rejected valid, printable illustrations. Import and retain colors.
-        source = []
-        for obj in tempdoc.Objects:
-            if not hasattr(obj, "Shape") or obj.Shape.isNull():
-                continue
-            for index, face in enumerate(_faces(obj.Shape)):
-                if face.Area > 1e-5:
-                    source.append((face, _svg_color(obj, index)))
-        if not source:
-            raise ValueError("El SVG no contiene áreas cerradas. Convierte los trazos a contornos rellenos.")
-
-        caption_band = max(cfg.text_size + 2 * cfg.margin, cfg.height * 0.25)
-        picture_height = cfg.height - caption_band - 2 * cfg.margin
-        if picture_height < 5:
-            raise ValueError("La caja es demasiado baja para el dibujo y el nombre.")
-
-        front_z = cfg.depth - LAMP_FRONT if cfg.lamp_mode else 0.0
-        front_thickness = LAMP_FRONT if cfg.lamp_mode else cfg.depth
-        # The face is flush; the 0.6 mm inlays preserve backing thickness.
-        art_inlay = min(0.6, front_thickness - 0.6)
-        text_inlay = art_inlay
-        if min(art_inlay, text_inlay) < 0.1:
-            raise ValueError("La profundidad no permite incrustar los colores.")
-
-        all_faces = Part.makeCompound([face for face, _ in source])
-        bb = all_faces.BoundBox
-        if bb.XLength < 1e-5 or bb.YLength < 1e-5:
-            raise ValueError("El SVG no tiene un contorno visible válido.")
-        scale = min((cfg.width - 2 * cfg.margin) / bb.XLength,
-                    picture_height / bb.YLength)
-        origin_x = cfg.width / 2 - scale * (bb.XMin + bb.XMax) / 2
-        origin_y = caption_band + cfg.margin + picture_height / 2 - scale * (bb.YMin + bb.YMax) / 2
-        layers = []
-        for face, color in source:
-            transformed = face.copy()
-            transformed.scale(scale)
-            transformed.translate(App.Vector(origin_x, origin_y,
-                                              cfg.depth - art_inlay - scale * bb.ZMin))
-            extruded = transformed.extrude(App.Vector(0, 0, art_inlay))
-            if not extruded.isValid() or not extruded.Solids:
-                raise ValueError("Una región del SVG no se pudo convertir en sólido.")
-            layers.append((extruded, color))
-
-        caption = Draft.make_shapestring(cfg.text, cfg.font_path, cfg.text_size, 0)
-        tempdoc.recompute()
-        if caption.Shape.isNull():
-            raise ValueError("La fuente no pudo generar contornos.")
-        caption_shape = _fit(caption.Shape, cfg.width - 2 * cfg.margin,
-                             min(cfg.text_size, caption_band - cfg.margin),
-                             cfg.width / 2, caption_band / 2,
-                             cfg.depth - text_inlay)
-        for face in _faces(caption_shape):
-            solid = face.extrude(App.Vector(0, 0, text_inlay))
-            if solid.isValid() and solid.Solids:
-                layers.append((solid, (0.1, 0.65, 0.85)))
-        if len(layers) == len(source):
-            raise ValueError("La fuente no produjo letras extruibles.")
-
-        visible = _visible_layers(layers)
-        if not visible:
-            raise ValueError("No quedaron áreas imprimibles después de procesar el SVG.")
-        cutters = Part.makeCompound([shape for shape, _ in visible])
-        backing = Part.makeBox(cfg.width, cfg.height, front_thickness,
-                               App.Vector(0, 0, front_z)).cut(cutters)
-        if not backing.isValid() or len(backing.Solids) != 1:
-            raise ValueError("No se pudo crear la base maciza con incrustaciones.")
-
-        # Fewer FreeCAD objects: one compound per distinct filament color.
-        groups = {}
-        for shape, color in visible:
-            groups.setdefault(color, []).append(shape)
-        base_name = "nameforge_frente" if cfg.lamp_mode else "nameforge_base"
-        result = [(base_name, "Base plana · color de fondo", backing,
-                   (0.93, 0.93, 0.93))]
-        for index, (color, shapes) in enumerate(groups.items(), 1):
-            part = Part.makeCompound(shapes)
-            if not part.isValid():
-                raise ValueError("No se pudo agrupar el color %d." % index)
-            result.append(("nameforge_color_%03d" % index,
-                           "Color %d · piezas coplanares" % index, part, color))
-        if cfg.lamp_mode:
-            result.append(("nameforge_marco", "Marco hueco · salida de cable",
-                           _lamp_frame(cfg), (0.32, 0.42, 0.53)))
-        return result
-    finally:
-        if filename and os.path.isfile(filename):
-            os.remove(filename)
-        App.closeDocument(tempdoc.Name)
-        if old:
-            App.setActiveDocument(old.Name)
+def make_parts(cfg, svg_xml, progress=None):
+    """Delegate to the optimized 2D/filament engine."""
+    from .nameforge_engine import make_parts as build
+    return build(cfg, svg_xml, progress=progress)
 
 
 def is_project(obj):
@@ -340,11 +230,11 @@ def _properties(root, cfg, svg_xml, create=False):
         setattr(root, name.title().replace("_", ""), getattr(cfg, name))
 
 
-def save_project(cfg, root=None):
+def save_project(cfg, root=None, progress=None):
     import FreeCAD as App
     cfg.validate()
     xml = _svg_xml(cfg, getattr(root,"SVGData",None), getattr(root,"SVGPath",None))
-    parts = make_parts(cfg, xml)  # no mutation of the user's document on failure
+    parts = make_parts(cfg, xml, progress=progress)  # no mutation of the user's document on failure
     doc = root.Document if root else (App.ActiveDocument or App.newDocument("RSMaker"))
     doc.openTransaction("RS Maker: crear/regenerar NameForge")
     try:
@@ -474,11 +364,26 @@ class ReliefDialog(QtWidgets.QDialog):
                            text=self.caption.text().strip(),
                            lamp_mode=self.lamp_mode.isChecked(),
                            **{name:field.value() for name,field in self.sizes.items()})
+        dialog = QtWidgets.QProgressDialog("Preparando diseño...", "Cancelar", 0, 100, self)
+        dialog.setWindowTitle("RS Maker · Generando NameForge")
+        dialog.setMinimumDuration(0)
+        dialog.setValue(0)
+
+        def on_progress(value, message):
+            dialog.setLabelText(message)
+            dialog.setValue(min(99, int(value)))
+            QtWidgets.QApplication.processEvents()
+            if dialog.wasCanceled():
+                raise RuntimeError("Generación cancelada; no se modificó el proyecto.")
+
         try:
-            self.root = save_project(cfg, self.root)
+            self.root = save_project(cfg, self.root, progress=on_progress)
+            dialog.setValue(100)
         except Exception as exc:
             QtWidgets.QMessageBox.critical(self, "No se pudo generar NameForge", str(exc))
             return
+        finally:
+            dialog.close()
         self.accept()
 
 

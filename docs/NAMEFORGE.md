@@ -29,3 +29,15 @@ El SVG puede contener **más de 350 regiones**. No hay un límite arbitrario por
 Se conserva la edición de proyectos NameForge anteriores mediante el esquema 3. Los campos `ArtworkRelief` y `TextRelief` históricos continúan almacenados para abrir modelos anteriores, pero se ignoran al generar: el frente siempre es liso. La tipografía local debe continuar disponible en la ruta original; el SVG queda embebido en el documento FreeCAD.
 
 La nueva generación necesita validación en FreeCAD 1.x con SVG reales (simples y de más de 350 regiones) y una impresión de prueba multicolor. La comprobación estática y las pruebas de CI no demuestran encaje físico, correcto mapeo de todos los SVG ni compatibilidad con todas las versiones de FreeCAD.
+
+
+## Motor optimizado (11 de noviembre de 2026)
+
+- Las rutas se resuelven en **2D** respetando el orden de superposición del SVG; se extruyen solo después de recortar el dibujo.
+- Un **índice espacial por celdas** evita evaluar todas las parejas de regiones cuando se encuentran alejadas. Los caminos superpuestos siguen siendo operaciones geométricas costosas.
+- La base se calcula restando incrustaciones de la **cara plana**, extruyendo la piel resultante y uniéndola a un bloque macizo de respaldo; ya no se corta un bloque volumétrico con cientos de pequeños sólidos.
+- Una caché de sesión, acotada a dos entradas por categoría, memoriza la importación SVG y el dibujo plano resuelto según sus medidas. Cambiar solamente el nombre reutiliza la geometría del dibujo. Cambiar el SVG o las medidas invalida automáticamente la entrada correspondiente.
+- Al generar aparece una ventana con estado, porcentaje y opción **Cancelar**. La cancelación se comprueba entre etapas y lotes; una sola operación booleana de OpenCascade puede seguir bloqueando brevemente la interfaz.
+- Se conservan los colores como partes independientes, el frente liso, los parámetros de tamaño y los dos modos macizo/lámpara.
+
+Estos cambios reducen comparaciones y operaciones 3D, pero **no prometen un tiempo fijo** para SVG complejos. Falta ejecutar el generador completo con FreeCAD 1.x y archivos de producción, medir los tiempos reales y comprobar el encaje multicolor impreso.
