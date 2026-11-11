@@ -344,8 +344,8 @@ class ReliefDialog(QtWidgets.QDialog):
             row.addWidget(browse)
             form.addRow(name, row)
         form.addRow("Nombre", self.caption)
-        self.lamp_mode = QtWidgets.QCheckBox("Lámpara: silueta y texto calados (2 piezas)")
-        self.lamp_mode.setToolTip("Activado: frente de 2 mm + marco de 3 mm sin techo, "
+        self.lamp_mode = QtWidgets.QCheckBox("Lámpara: silueta y nombre calados (3 piezas)")
+        self.lamp_mode.setToolTip("Activado: frente de 2 mm, marco y tapa trasera de 2 mm, "
                                   "cavidad para LED y salida para cable. "
                                   "Desactivado: caja 100 % maciza.")
         form.addRow("Modo", self.lamp_mode)
@@ -368,11 +368,23 @@ class ReliefDialog(QtWidgets.QDialog):
             field = QtWidgets.QDoubleSpinBox()
             field.setSuffix(" mm")
             field.setDecimals(2)
-            field.setRange(0.1, 500)
+            limits = {"width": (30, 430), "height": (40, 430),
+                      "depth": (2, 100), "text_size": (4, 80),
+                      "margin": (2, 25)}
+            field.setRange(*limits[name])
             field.setValue(getattr(defaults, name))
             field.setSingleStep(0.5)
             self.sizes[name] = field
             form.addRow(DISPLAY[name], field)
+        self.ratio_note = QtWidgets.QLabel("Ancho y alto vinculados: conservar proporciones")
+        self.ratio_note.setWordWrap(True)
+        form.addRow("Escala proporcional", self.ratio_note)
+        self.suggest_button = QtWidgets.QPushButton("Sugerir dimensiones según el detalle")
+        self.suggest_button.setToolTip(
+            "Analiza los bordes y la complejidad del dibujo. "
+            "No modifica la profundidad ni garantiza detalle mínimo en impresión.")
+        self.suggest_button.clicked.connect(self._suggest_dimensions)
+        form.addRow("", self.suggest_button)
         self.feedback = QtWidgets.QLabel()
         self.feedback.setWordWrap(True)
         layout.addWidget(self.feedback)
@@ -395,6 +407,74 @@ class ReliefDialog(QtWidgets.QDialog):
             self.palette.setValue(cfg.palette_colors)
             self.bridge.setValue(cfg.bridge_width)
             self.lamp_mode.setChecked(cfg.lamp_mode)
+        self._ratio = self.sizes["width"].value() / self.sizes["height"].value()
+        self._updating_link = False
+        self._show_ratio()
+        for name in ("width", "height"):
+            self.sizes[name].valueChanged.connect(
+                lambda value, changed=name: self._keep_proportions(changed, value))
+
+    def _show_ratio(self):
+        self.ratio_note.setText(
+            "Ancho y alto siempre vinculados · relación %.3f:1" % self._ratio)
+
+    def _set_linked_size(self, width, height, new_ratio=False):
+        if new_ratio:
+            self._ratio = width / height
+        self._updating_link = True
+        try:
+            for name, size in (("width", width), ("height", height)):
+                spin = self.sizes[name]
+                previous = spin.blockSignals(True)
+                try:
+                    spin.setValue(size)
+                finally:
+                    spin.blockSignals(previous)
+        finally:
+            self._updating_link = False
+        self._show_ratio()
+
+    def _keep_proportions(self, changed, value):
+        if self._updating_link:
+            return
+        from .stencil_core import proportional_size
+        width = self.sizes["width"].value()
+        height = self.sizes["height"].value()
+        matched = proportional_size(width, height, self._ratio, changed)
+        self._set_linked_size(*matched)
+
+    def _suggest_dimensions(self):
+        import os
+        from . import lamp_stencil
+        from .stencil_core import suggest_dimensions
+        from .relief import _read_source
+        path = self.svg.text().strip()
+        if not path:
+            QtWidgets.QMessageBox.information(
+                self, "Selecciona una imagen", "Elige una imagen o SVG para analizarla.")
+            return
+        try:
+            cfg = ReliefConfig(svg_path=path)
+            data = _read_source(cfg, self.root)
+            image = lamp_stencil._qt_image(
+                data, os.path.splitext(path)[1].lower(), 360, 360)
+            mask = lamp_stencil._fg_mask(
+                lamp_stencil._pixels(image), image.width(), image.height(), 45)
+            suggestion = suggest_dimensions(
+                mask, image.width(), image.height(), len(self.caption.text()))
+            self._set_linked_size(
+                suggestion["width"], suggestion["height"], new_ratio=True)
+            QtWidgets.QMessageBox.information(
+                self, "Dimensiones sugeridas",
+                "Ancho: %.0f mm · alto: %.0f mm.\n"
+                "Detalle estimado: %s.\n"
+                "La profundidad no se ha modificado. "
+                "Puedes cambiar cualquier dimensión sin perder la proporción. "
+                "Revisa los detalles en el laminador antes de imprimir." %
+                (suggestion["width"], suggestion["height"], suggestion["detail"]))
+        except Exception as exc:
+            QtWidgets.QMessageBox.warning(
+                self, "No se pudo analizar la imagen", str(exc))
 
     def _mode_changed(self, *args):
         is_lamp = self.lamp_mode.isChecked()
@@ -404,7 +484,8 @@ class ReliefDialog(QtWidgets.QDialog):
             self.feedback.setText(
                 "Lámpara: silueta exterior, detalles y nombre calados. "
                 "Los centros de letras quedan sujetos con puentes; "
-                "el marco sigue el contorno. Imprime ambas piezas por separado.")
+                "el marco sigue el contorno y una tapa trasera cierra el conjunto. "
+                "Imprime las tres piezas por separado.")
         else:
             self.feedback.setText(
                 "Caja maciza: imagen o SVG se reduce a una paleta configurable "

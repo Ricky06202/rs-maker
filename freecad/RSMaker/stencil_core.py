@@ -396,6 +396,32 @@ def suggest_dimensions(mask,w,h,text_length=6):
     return dict(width=recommended_width,height=recommended_height,
                 detail=level,edge_ratio=round(detail,3))
 
+
+def proportional_size(width,height,ratio,changed):
+    """Return a valid locked-aspect pair within NameForge's CAD limits.
+
+    changed is 'width' or 'height'; an impossible requested value is clamped
+    to the nearest feasible pair, not allowed to distort the design.
+    """
+    if ratio<=0:
+        raise ValueError("La proporción debe ser positiva")
+    min_w,max_w=30.,430.
+    min_h,max_h=40.,430.
+    low=max(min_w,min_h*ratio)
+    high=min(max_w,max_h*ratio)
+    if low>high:
+        raise ValueError("Las proporciones no caben en las dimensiones permitidas")
+    if changed=="width":
+        w=max(low,min(high,float(width)))
+        h=w/ratio
+    elif changed=="height":
+        h=max(low/ratio,min(high/ratio,float(height)))
+        w=h*ratio
+    else:
+        raise ValueError("Debe editarse ancho o alto")
+    return round(w,2),round(h,2)
+
+
 def to_svg(loops,w,h,pixels_per_mm,fill='#000000'):
     """Even-odd fill guarantees that counter loops become true through-holes."""
     def fmt(v):

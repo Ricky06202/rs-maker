@@ -72,6 +72,37 @@ class StencilTests(unittest.TestCase):
         rings=st.contours(fixed,w,h,tolerance=.85)
         self.assertTrue(rings)
 
+    def test_proportional_resize_keeps_ratio(self):
+        ratio = 160 / 170
+        width, height = st.proportional_size(220, 170, ratio, "width")
+        self.assertAlmostEqual(width / height, ratio, places=3)
+        width2, height2 = st.proportional_size(width, 300, ratio, "height")
+        self.assertAlmostEqual(width2 / height2, ratio, places=3)
+        self.assertNotEqual(width2, width)
+
+    def test_proportional_resize_clamps_to_both_limits(self):
+        width, height = st.proportional_size(430, 90, 2.5, "height")
+        self.assertAlmostEqual(width / height, 2.5, places=2)
+        self.assertLessEqual(width, 430)
+        self.assertLessEqual(height, 430)
+        width, height = st.proportional_size(430, 100, 2.5, "width")
+        self.assertLessEqual(width, 430)
+        self.assertAlmostEqual(width / height, 2.5, places=2)
+
+    def test_suggest_dimensions_monotonic_complexity(self):
+        w=h=64
+        simple=bytearray(w*h)
+        for y in range(14,50):
+            for x in range(14,50):
+                simple[y*w+x]=1
+        intricate=bytearray(w*h)
+        for y in range(14,50):
+            for x in range(14,50):
+                intricate[y*w+x]=int(x%2==0 or y%2==0)
+        a=st.suggest_dimensions(simple,w,h)
+        b=st.suggest_dimensions(intricate,w,h)
+        self.assertGreaterEqual(b["height"], a["height"])
+
     def test_svg_paths_preserve_counters(self):
         w=h=50
         m=bytearray(w*h)
