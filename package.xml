@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<package format="1" xmlns="https://wiki.freecad.org/Package_Metadata">
+  <name>RS Maker</name>
+  <description>Generador experimental de cajas puzzle sorpresa imprimibles.</description>
+  <version>0.3.0</version>
+  <date>2026-11-10</date>
+  <maintainer email="">RS Maker</maintainer>
+  <license file="LICENSE">MIT</license>
+  <icon>Resources/Icons/logo.svg</icon>
+  <content><workbench><classname>RSMakerWorkbench</classname><subdirectory>freecad/RSMaker</subdirectory></workbench></content>
+</package>
