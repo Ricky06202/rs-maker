@@ -152,12 +152,15 @@ def _visible_layers(layers):
     Newer SVG shapes obscure earlier ones. Only shapes whose XY bounds
     overlap require a boolean subtraction; sparse drawings stay inexpensive.
     """
-    import Part
     upper = []
     result = []
     for solid, color in reversed(layers):
         interfering = [other for other in upper if _overlap_xy(solid, other)]
-        visible = solid.cut(Part.makeCompound(interfering)) if interfering else solid
+        if interfering:
+            import Part
+            visible = solid.cut(Part.makeCompound(interfering))
+        else:
+            visible = solid
         if not visible.isNull() and visible.Volume > 1e-7:
             if not visible.isValid():
                 raise ValueError("El SVG contiene rutas inválidas o auto-intersecciones.")
