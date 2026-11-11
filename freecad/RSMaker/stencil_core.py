@@ -328,6 +328,74 @@ def contours(mask,w,h,tolerance=1.1,min_area=3.0):
     return loops
 
 
+
+def soften_contour(points, iterations=1):
+    """Reduce staircase edges without rounding long, deliberate sharp points.
+
+    A light Chaikin pass is applied to short segments (pixel steps). Long
+    geometric edges retain their vertices so character spikes stay defined.
+    Output remains a closed *ring* represented without duplicate endpoint.
+    """
+    if len(points)<5 or iterations<1:
+        return list(points)
+    result=list(points)
+    for _ in range(iterations):
+        output=[]
+        count=len(result)
+        for i,point in enumerate(result):
+            nxt=result[(i+1)%count]
+            dx=nxt[0]-point[0]
+            dy=nxt[1]-point[1]
+            length=(dx*dx+dy*dy)**.5
+            if length>=5.0:
+                output.append(point)
+            else:
+                output.append((.75*point[0]+.25*nxt[0],
+                               .75*point[1]+.25*nxt[1]))
+                output.append((.25*point[0]+.75*nxt[0],
+                               .25*point[1]+.75*nxt[1]))
+        result=output
+    return result
+
+
+def suggest_dimensions(mask,w,h,text_length=6):
+    """Recommend printable dimensions from artwork silhouette and line density.
+
+    This is an advisory heuristic for a 0.4 mm nozzle, not a guarantee:
+    details below roughly 0.8 mm may disappear during slicing.
+    """
+    _validate(mask,w,h)
+    pixels=[i for i,v in enumerate(mask) if v]
+    if not pixels:
+        raise ValueError("La imagen no tiene un dibujo visible.")
+    x0=min(p%w for p in pixels)
+    x1=max(p%w for p in pixels)
+    y0=min(p//w for p in pixels)
+    y1=max(p//w for p in pixels)
+    aspect=max(.15,min(4.,(x1-x0+1)/max(1,y1-y0+1)))
+    transitions=0
+    for y in range(h):
+        off=y*w
+        for x in range(w):
+            if x+1<w and mask[off+x]!=mask[off+x+1]:
+                transitions+=1
+            if y+1<h and mask[off+x]!=mask[off+x+w]:
+                transitions+=1
+    detail=transitions/max(1,len(pixels))
+    if detail>=.45:
+        art_height,level=205,"alto"
+    elif detail>=.22:
+        art_height,level=170,"medio"
+    else:
+        art_height,level=140,"bajo"
+    # Leave room for a readable, printable 19 mm-high caption and borders.
+    recommended_width=max(110,art_height*aspect+20,90+min(24,text_length)*5)
+    recommended_height=art_height+max(45,art_height*.32)+12
+    recommended_width=min(430,max(45,round(recommended_width/5)*5))
+    recommended_height=min(430,max(50,round(recommended_height/5)*5))
+    return dict(width=recommended_width,height=recommended_height,
+                detail=level,edge_ratio=round(detail,3))
+
 def to_svg(loops,w,h,pixels_per_mm,fill='#000000'):
     """Even-odd fill guarantees that counter loops become true through-holes."""
     def fmt(v):
