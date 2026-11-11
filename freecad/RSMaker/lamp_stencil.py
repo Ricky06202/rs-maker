@@ -207,12 +207,16 @@ def prepare_mask(cfg,source,extension,progress=None):
     frame,frame_diagonals=core.repair_diagonal_contacts(frame,w,h)
     frame_rings=core.contours(
         frame,w,h,tolerance=.85,min_area=scale*scale*.6)
+    rear_mask=core.fill_holes(connected,w,h)
+    rear_mask,_=core.repair_diagonal_contacts(rear_mask,w,h)
+    if len(core.connected_components(rear_mask,w,h)) != 1:
+        raise ValueError("La tapa trasera no conserva una silueta conectada.")
     return (
         core.to_svg(rings,w,h,scale),
         core.to_svg(frame_rings,w,h,scale),
         dict(pixels=(w,h),bridges=bridges+frame_bridges,
              removed_islands=removed,paths=len(rings),
-             front_mask=connected,frame_mask=frame,
+             front_mask=connected,frame_mask=frame,rear_mask=rear_mask,
              scale=scale,diagonal_repairs=front_diagonals+frame_diagonals))
 
 
@@ -227,69 +231,90 @@ def _to_part(mask,w,h,pixels_per_mm,label):
     import FreeCAD as App
     import Part
     errors=[]
-    for tolerance in (0.85,0.25,0.0):
-        try:
-            paths=core.contours(
-                mask,w,h,tolerance=tolerance,
-                min_area=(pixels_per_mm*pixels_per_mm)*.5)
-            wires=[]
-            for index,ring in enumerate(paths):
-                if len(ring)<3:
-                    continue
-                vectors=[App.Vector(float(x)/pixels_per_mm,
-                                    float(h-y)/pixels_per_mm,0)
-                         for x,y in ring]
-                # Part.makePolygon returns an open wire unless the first
-                # vertex is explicitly repeated.
-                poly=Part.makePolygon(vectors+[vectors[0]])
-                wire=Part.Wire(poly.Edges)
-                if not wire.isClosed() or not wire.isValid():
-                    raise ValueError("Contorno %d inválido"%(index+1))
-                wires.append(wire)
-            if not wires:
-                raise ValueError("No hay contornos imprimibles")
-            face=Part.makeFace(wires,"Part::FaceMakerBullseye")
-            if face.isNull() or not face.Faces or not face.isValid():
-                raise ValueError("No se pudo cerrar la cara con huecos")
-            return face
-        except Exception as exc:
-            errors.append("%s: %s"%(tolerance,exc))
+    # Smooth only short staircase segments; keep a raw-polygon fallback
+    # because aggressive smoothing may close a thin letter aperture.
+    for smooth in (True,False):
+        for tolerance in (0.85,0.25,0.0):
+            try:
+                paths=core.contours(
+                    mask,w,h,tolerance=tolerance,
+                    min_area=(pixels_per_mm*pixels_per_mm)*.5)
+                wires=[]
+                for index,ring in enumerate(paths):
+                    if len(ring)<3:
+                        continue
+                    if smooth:
+                        ring=core.soften_contour(ring,iterations=1)
+                    vectors=[App.Vector(float(x)/pixels_per_mm,
+                                        float(h-y)/pixels_per_mm,0)
+                             for x,y in ring]
+                    poly=Part.makePolygon(vectors+[vectors[0]])
+                    wire=Part.Wire(poly.Edges)
+                    if not wire.isClosed() or not wire.isValid():
+                        raise ValueError("Contorno %d inválido"%(index+1))
+                    wires.append(wire)
+                if not wires:
+                    raise ValueError("No hay contornos imprimibles")
+                face=Part.makeFace(wires,"Part::FaceMakerBullseye")
+                if face.isNull() or not face.Faces or not face.isValid():
+                    raise ValueError("No se pudo cerrar la cara con huecos")
+                return face
+            except Exception as exc:
+                errors.append("%s,%s: %s"%(smooth,tolerance,exc))
     raise ValueError(
         "No se pudo cerrar %s. Prueba aumentar el puente o el tamaño del "
         "diseño. Detalle de tolerancias: %s"%(label,"; ".join(errors)))
 
 
 def make_lamp(cfg,source,extension,progress=None):
-    """Build two independent, connected solids from topology-checked masks."""
+    """Generate a closed-back 3-piece lightbox with a serviceable LED cavity.
+
+    The front and frame follow the silhouette; the printable back cover is
+    a solid sheet of the same outline (except a small cable pass-through).
+    """
     import FreeCAD as App
     import Part
 
     facade,wall,meta=prepare_mask(cfg,source,extension,progress)
     w,h=meta["pixels"]
     scale=meta["scale"]
-    if progress:progress(88,"Cerrando contornos y huecos en FreeCAD")
+    front_thickness=2.0
+    rear_thickness=2.0
+    cavity_height=cfg.depth-front_thickness-rear_thickness
+    if cavity_height<4.0:
+        raise ValueError("La lámpara necesita espacio para LED y tapa trasera.")
+
+    if progress:progress(86,"Suavizando contornos y cerrando la tapa trasera")
     front=_to_part(meta["front_mask"],w,h,scale,"frente").extrude(
-        App.Vector(0,0,2.0))
-    front.translate(App.Vector(0,0,cfg.depth-2.0))
+        App.Vector(0,0,front_thickness))
+    front.translate(App.Vector(0,0,cfg.depth-front_thickness))
     frame=_to_part(meta["frame_mask"],w,h,scale,"marco").extrude(
-        App.Vector(0,0,cfg.depth-2.0))
-    bounds=frame.BoundBox
-    notch=Part.makeBox(
-        5.5,5.0,3.0,
-        App.Vector((bounds.XMin+bounds.XMax)/2-2.75,
-                   bounds.YMin-1.0,0))
-    frame=frame.cut(notch)
-    for shape,label in ((front,"frente"),(frame,"marco")):
+        App.Vector(0,0,cavity_height))
+    frame.translate(App.Vector(0,0,rear_thickness))
+    rear=_to_part(meta["rear_mask"],w,h,scale,"tapa trasera").extrude(
+        App.Vector(0,0,rear_thickness))
+
+    # Leave a small, explicitly bounded 5-mm exit for low-voltage LED wire.
+    # This is a pass-through in the rear cover, not an open back.
+    bounds=rear.BoundBox
+    cable_x=(bounds.XMin+bounds.XMax)/2.0
+    cable_y=bounds.YMin+8.0
+    port=Part.makeCylinder(2.5,rear_thickness+1.0,
+                           App.Vector(cable_x,cable_y,-0.5))
+    rear=rear.cut(port)
+    for shape,label in ((front,"frente"),(frame,"marco"),(rear,"tapa trasera")):
         if not shape.isValid() or len(shape.Solids)!=1:
             raise ValueError(
-                "El %s no es una sola pieza imprimible; "
+                "El %s no es un sólido único imprimible; "
                 "ajusta puente, tamaño o detalle."%label)
-    if progress:progress(98,"Frente perforado y marco preparados")
+    if progress:progress(98,"Frente suave, marco y tapa trasera preparados")
     return [
-        ("nameforge_frente","Frente silueta y nombre calados",
+        ("nameforge_frente","Frente de silueta · nombre calado",
          front,(.94,.94,.94)),
-        ("nameforge_marco","Marco siguiendo silueta",
-         frame,(.20,.25,.34))]
+        ("nameforge_marco","Marco para iluminación LED",
+         frame,(.20,.25,.34)),
+        ("nameforge_tapa_trasera","Tapa trasera lisa · salida de cable",
+         rear,(.72,.77,.82))]
 
 
 def optimize_svg(source,extension,colors=8,progress=None):
