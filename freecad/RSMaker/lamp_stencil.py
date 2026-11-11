@@ -294,7 +294,7 @@ def prepare_mask(cfg,source,extension,progress=None):
             core.to_svg(frame_rings,w,h,meta["scale"]),meta)
 
 
-def _to_part(mask,w,h,pixels_per_mm,label):
+def _to_part(mask,w,h,pixels_per_mm,label,paths=None):
     """Build watertight faces directly from raster boundary loops.
 
     The old importSVG round-trip placed many subpaths into one compound
@@ -305,36 +305,37 @@ def _to_part(mask,w,h,pixels_per_mm,label):
     import FreeCAD as App
     import Part
     errors=[]
-    # Smooth only short staircase segments; keep a raw-polygon fallback
-    # because aggressive smoothing may close a thin letter aperture.
-    for smooth in (True,False):
-        for tolerance in (0.85,0.25,0.0):
-            try:
-                paths=core.contours(
-                    mask,w,h,tolerance=tolerance,
-                    min_area=(pixels_per_mm*pixels_per_mm)*.5)
-                wires=[]
-                for index,ring in enumerate(paths):
-                    if len(ring)<3:
-                        continue
-                    if smooth:
-                        ring=core.soften_contour(ring,iterations=1)
-                    vectors=[App.Vector(float(x)/pixels_per_mm,
-                                        float(h-y)/pixels_per_mm,0)
-                             for x,y in ring]
-                    poly=Part.makePolygon(vectors+[vectors[0]])
-                    wire=Part.Wire(poly.Edges)
-                    if not wire.isClosed() or not wire.isValid():
-                        raise ValueError("Contorno %d inválido"%(index+1))
-                    wires.append(wire)
-                if not wires:
-                    raise ValueError("No hay contornos imprimibles")
-                face=Part.makeFace(wires,"Part::FaceMakerBullseye")
-                if face.isNull() or not face.Faces or not face.isValid():
-                    raise ValueError("No se pudo cerrar la cara con huecos")
-                return face
-            except Exception as exc:
-                errors.append("%s,%s: %s"%(smooth,tolerance,exc))
+    # Preprocessed rings arrive from the background worker. Recompute a raw
+    # fallback only if the CAD kernel rejects the prepared (smoothed) face.
+    candidates=[]
+    if paths is not None:
+        candidates.append(("preparado",paths))
+    candidates.extend((str(t),None) for t in (.85,.25,0.0))
+    for attempt,rings in candidates:
+        try:
+            if rings is None:
+                rings=core.contours(mask,w,h,tolerance=float(attempt),
+                                    min_area=(pixels_per_mm**2)*.5)
+            wires=[]
+            for index,ring in enumerate(rings):
+                if len(ring)<3:
+                    continue
+                vectors=[App.Vector(float(x)/pixels_per_mm,
+                                    float(h-y)/pixels_per_mm,0)
+                         for x,y in ring]
+                poly=Part.makePolygon(vectors+[vectors[0]])
+                wire=Part.Wire(poly.Edges)
+                if not wire.isClosed() or not wire.isValid():
+                    raise ValueError("Contorno %d inválido"%(index+1))
+                wires.append(wire)
+            if not wires:
+                raise ValueError("No hay contornos imprimibles")
+            face=Part.makeFace(wires,"Part::FaceMakerBullseye")
+            if face.isNull() or not face.Faces or not face.isValid():
+                raise ValueError("No se pudo cerrar la cara con huecos")
+            return face
+        except Exception as exc:
+            errors.append("%s: %s"%(attempt,exc))
     raise ValueError(
         "No se pudo cerrar %s. Prueba aumentar el puente o el tamaño del "
         "diseño. Detalle de tolerancias: %s"%(label,"; ".join(errors)))
@@ -361,13 +362,16 @@ def make_lamp(cfg,source,extension,progress=None,mask_meta=None):
         raise ValueError("La lámpara necesita espacio para LED y tapa trasera.")
 
     if progress:progress(86,"Suavizando contornos y cerrando la tapa trasera")
-    front=_to_part(meta["front_mask"],w,h,scale,"frente").extrude(
+    front=_to_part(meta["front_mask"],w,h,scale,"frente",
+                   meta.get("front_paths")).extrude(
         App.Vector(0,0,front_thickness))
     front.translate(App.Vector(0,0,cfg.depth-front_thickness))
-    frame=_to_part(meta["frame_mask"],w,h,scale,"marco").extrude(
+    frame=_to_part(meta["frame_mask"],w,h,scale,"marco",
+                   meta.get("frame_paths")).extrude(
         App.Vector(0,0,cavity_height))
     frame.translate(App.Vector(0,0,rear_thickness))
-    rear=_to_part(meta["rear_mask"],w,h,scale,"tapa trasera").extrude(
+    rear=_to_part(meta["rear_mask"],w,h,scale,"tapa trasera",
+                   meta.get("rear_paths")).extrude(
         App.Vector(0,0,rear_thickness))
 
     # Leave a small, explicitly bounded 5-mm exit for low-voltage LED wire.
