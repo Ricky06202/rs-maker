@@ -215,6 +215,54 @@ def connect_islands(material,envelope,w,h,bridge_radius,min_island=2):
 
 
 
+def classify_artwork(ink, outer, w, h):
+    """Detect filled logos/silhouettes versus sparse ink line drawings.
+
+    Silhouette art has broad dark regions, and white negative spaces are
+    intended openings. In line art, the dark strokes themselves can become
+    cutouts. Misclassifying a solid black icon as line art removes most of its
+    body and can create an excessive number of disconnected CAD islands.
+
+    Density is measured inside the buffered silhouette rather than over the
+    full page, so white page margins do not affect the classification.
+    """
+    _validate(ink,w,h)
+    _validate(outer,w,h)
+    dark=0
+    filled=0
+    for fg,shape in zip(ink,outer):
+        if shape:
+            filled+=1
+            if fg:
+                dark+=1
+    if filled<4:
+        raise ValueError("La imagen no tiene un dibujo reconocible.")
+    fraction=dark/filled
+    return ("silhouette" if fraction>=0.62 else "lineart"),fraction
+
+
+def clean_tiny_cutouts(cut,w,h,min_pixels):
+    """Discard sub-nozzle perforations before expensive CAD vectorization.
+
+    4-connected specks that cannot reasonably be printed do not create
+    wires, isolated slivers or fragile through-holes. Larger eye/ear holes
+    and letter counters are preserved.
+    """
+    _validate(cut,w,h)
+    if min_pixels<=1:
+        return bytearray(cut),0
+    out=bytearray(w*h)
+    removed=0
+    for comp in connected_components(cut,w,h):
+        if len(comp)<min_pixels:
+            removed+=1
+        else:
+            for i in comp:
+                out[i]=1
+    return out,removed
+
+
+
 def solid_rear_envelope(envelope,w,h):
     """Use the intended outer silhouette, NEVER holes/bridges of the front.
 
