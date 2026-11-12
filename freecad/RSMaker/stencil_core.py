@@ -215,6 +215,24 @@ def connect_islands(material,envelope,w,h,bridge_radius,min_island=2):
 
 
 
+def solid_rear_envelope(envelope,w,h):
+    """Use the intended outer silhouette, NEVER holes/bridges of the front.
+
+    fill_holes(front) is not a valid rear silhouette: front stencil bridges
+    can close triangular exterior pockets at the base join, turning an
+    originally empty region into an unwanted printable wedge on the back.
+    """
+    _validate(envelope,w,h)
+    result,_=repair_diagonal_contacts(envelope,w,h)
+    pieces=connected_components(result,w,h)
+    if len(pieces)!=1:
+        raise ValueError(
+            "La figura y la placa no forman una carcasa continua. "
+            "Revisa el solape entre la ilustración y el nombre.")
+    return result
+
+
+
 def repair_diagonal_contacts(mask,w,h):
     """Resolve checkerboard pixel corners that become self-touching OCC wires.
 
