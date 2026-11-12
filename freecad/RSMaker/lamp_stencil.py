@@ -391,6 +391,14 @@ def _to_part(mask,w,h,pixels_per_mm,label,paths=None,splines=None):
             face=Part.makeFace(wires,"Part::FaceMakerBullseye")
             if face.isNull() or not face.Faces or not face.isValid():
                 raise ValueError("No se pudo cerrar la cara con huecos")
+            if plans is not None or splines is not None:
+                # Allows diagnosing a rejected smooth contour without
+                # exposing the user to a failed build.
+                try:
+                    App.Console.PrintMessage(
+                        "RS Maker NameForge | %s: %s\\n" % (label,attempt))
+                except (AttributeError,TypeError):
+                    pass
             return face
         except Exception as exc:
             errors.append("%s: %s"%(attempt,exc))
