@@ -45,3 +45,31 @@
 6. Exportar los dos STL por separado y abrirlos en el laminador: inspeccionar detalle de ojos, boca, ventanillas del restaurante, soportes y continuidad de malla.
 7. Regenerar un proyecto v0.2 existente con v0.3 y verificar que se conservan medidas y dificultades, y que el nuevo grupo "Arte original" aparece sin perder piezas anteriores.
 8. No asumir que el método de retención de pivotes y ejes es suficiente ni imprimir juguetes para niños sin evaluación de seguridad.
+
+
+## Incremento temático: Comida, Espacio y Playa
+
+Se habilitaron tres colecciones originales en el diálogo de caja puzzle:
+
+- **Comida:** Hamburguesita y Restaurante.
+- **Espacio:** Astronauta y Cohete.
+- **Playa:** Cangrejito y Palmeras.
+
+Al cambiar de colección, el selector debe mostrar únicamente personajes y
+escenas válidas para ella. La dificultad de los cinco mecanismos permanece
+independiente. La escena grande se coloca sobre la tapa, sin tapar la leva,
+y el chibi queda en el interior sin fusionarse con la caja.
+
+La prueba CI adicional instala CadQuery 2.6.1 con OpenCascade para verificar
+que las dos escenas y los dos nuevos chibis son sólidos únicos válidos; que
+los pivotes no invaden la tapa; que ni la decoración ni los cierres se
+intersecan; y que los cinco retos permanecen. Se corrigió un bug concreto:
+al crear esferas sin ángulos explícitos algunas partes se construían como
+**semiesferas desconectadas**. Se fijaron los ángulos para que las figuras
+sean un único sólido, y se bajó la cúpula del cohete para solaparla con
+el cuerpo.
+
+**Todavía hacen falta pruebas físicas:** exportar STL, inspeccionar capas,
+imprimir una pareja de pivotes, verificar las holguras, y validar retención y
+esfuerzos de los cinco mecanismos. No considerar estos modelos como juguetes
+infantiles terminados ni listos para vender.

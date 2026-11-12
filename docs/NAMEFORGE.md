@@ -276,3 +276,21 @@ espesor mínimo, agujeros de letras, puentes y tolerancias de impresión.
 Los tests de CI usan SVG y un motor externo simulados para confirmar
 las rutas de compatibilidad, aislamiento y respaldo; **no prueban
 una impresión ni los controladores de FreeCAD del usuario**.
+
+
+### Autocomprobación desde FreeCAD (NixOS, Flatpak y nativo)
+
+NameForge dispone del botón **«Comprobar VTracer»** junto al selector de
+vectorización. Ejecuta una breve autoprueba de la API Python en **el mismo
+intérprete externo** que usa el trabajador de NameForge. La autoprueba se
+lanza con `QProcess` de forma asíncrona; no debe congelar la interfaz, y se
+interrumpe si supera 5 segundos. Si el intérprete no arranca, falta el módulo
+`vtracer`, la API es incompatible o no es accesible desde el sandbox
+Flatpak, aparece una explicación en el diálogo. El resto del generador sigue
+funcionando con el trazador interno.
+
+Para utilizar otro Python en una instalación NixOS o Flatpak, ajusta
+`RS_MAKER_VTRACER_PYTHON` **antes de iniciar FreeCAD**; el botón y el motor
+leerán esa misma configuración. La prueba no instala paquetes, modifica
+permisos ni habilita automáticamente la GPU. Se mantiene el modo seguro
+`RSM_NAMEFORGE_SAFE_MODE=1` para investigar cierres nativos.
