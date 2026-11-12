@@ -651,6 +651,13 @@ class ReliefDialog(QtWidgets.QDialog):
                 import FreeCAD as App
                 diagnostics=meta.get("acceleration",{})
                 timings=meta.get("timings",{})
+                methods=meta.get("trace_methods",{})
+                App.Console.PrintMessage(
+                    "RS Maker NameForge | Vectorización: frontal %s, "
+                    "carcasa %s, cavidad %s\\n" %
+                    (methods.get("front","poligonal"),
+                     methods.get("rear","poligonal"),
+                     methods.get("cavity","poligonal")))
                 App.Console.PrintMessage(
                     "RS Maker NameForge | Procesador: %s | %s | "
                     "preparación: %.2f s, silueta: %.2f s, "
