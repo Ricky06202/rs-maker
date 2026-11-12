@@ -52,6 +52,20 @@ class LineArtVectorizationTests(unittest.TestCase):
         self.assertTrue(any(core.polygon_area(p)>0 for p in traced))
         self.assertTrue(any(core.polygon_area(p)<0 for p in traced))
 
+    def test_tiny_hole_uses_only_local_polygon_fallback(self):
+        w=h=115
+        mask=bytearray(w*h)
+        rect(mask,w,5,5,110,110)
+        rect(mask,w,30,30,80,80,0)
+        mask[91*w+90]=0  # A 1-pixel counter, too small for Gaussian tracing.
+        old=core.contours(mask,w,h,tolerance=.52,min_area=.5)
+        self.assertEqual(len(old),3)
+        result,method=tracer.trace_or_fallback(mask,w,h,"high")
+        self.assertEqual(len(result),3)
+        self.assertTrue(method.startswith("subpíxel mixto"))
+        self.assertEqual(sum(core.polygon_area(r)>0 for r in result),1)
+        self.assertEqual(sum(core.polygon_area(r)<0 for r in result),2)
+
     def test_fast_mode_keeps_lightweight_polygons(self):
         w=h=55
         mask=bytearray(w*h)
