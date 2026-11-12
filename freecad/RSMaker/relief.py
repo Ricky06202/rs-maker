@@ -30,6 +30,7 @@ class ReliefConfig:
     bridge_width: float = 1.6
     quality_mode: str = "balanced"
     compute_backend: str = "auto"
+    vector_backend: str = "auto"
 
     def validate(self):
         if not 30 <= self.width <= 430 or not 40 <= self.height <= 430:
@@ -56,6 +57,8 @@ class ReliefConfig:
             raise ValueError("Selecciona calidad rápida, balanceada o alta.")
         if self.compute_backend not in ("auto","opencl","cpu"):
             raise ValueError("Selecciona un procesador válido (automático, OpenCL o CPU).")
+        if self.vector_backend not in ("auto","vtracer","builtin"):
+            raise ValueError("Selecciona un vectorizador válido.")
         if not self.font_path.lower().endswith((".ttf", ".otf")):
             raise ValueError("Selecciona una fuente .ttf o .otf.")
         if not os.path.isfile(self.font_path):
@@ -69,7 +72,7 @@ DISPLAY = {"width":"Ancho de la caja", "height":"Alto de la caja",
            "depth":"Profundidad total", "artwork_relief":"Incrustación del dibujo (histórico)",
            "text_relief":"Incrustación del nombre (histórico)", "text_size":"Altura del nombre",
            "margin":"Margen"}
-SCHEMA = 6
+SCHEMA = 7
 LAMP_FRONT = 2.0  # flat, printable translucent front plate (mm)
 LAMP_WALL = 3.0   # adhesive frame width (mm)
 
@@ -213,7 +216,7 @@ def make_parts(cfg, svg_xml, progress=None):
 
 
 def is_project(obj):
-    return hasattr(obj, "RSMakerReliefSchema") and obj.RSMakerReliefSchema in (1, 2, 3, 4, 5, SCHEMA)
+    return hasattr(obj, "RSMakerReliefSchema") and obj.RSMakerReliefSchema in (1, 2, 3, 4, 5, 6, SCHEMA)
 
 
 def project_from_selection():
@@ -236,7 +239,8 @@ def from_project(root):
                         palette_colors=int(getattr(root,"PaletteColors",8)),
                         bridge_width=float(getattr(bridge,"Value",bridge)),
                         quality_mode=str(getattr(root,"QualityMode","balanced")),
-                        compute_backend=str(getattr(root,"ComputeBackend","auto")), **values)
+                        compute_backend=str(getattr(root,"ComputeBackend","auto")),
+                        vector_backend=str(getattr(root,"VectorBackend","auto")), **values)
 
 
 def _properties(root, cfg, source, create=False):
@@ -261,7 +265,10 @@ def _properties(root, cfg, source, create=False):
         root.addProperty("App::PropertyString", "QualityMode", "Fabricación")
     if not hasattr(root,"ComputeBackend"):
         root.addProperty("App::PropertyString","ComputeBackend","Fabricación")
+    if not hasattr(root,"VectorBackend"):
+        root.addProperty("App::PropertyString","VectorBackend","Fabricación")
     root.RSMakerReliefSchema = SCHEMA
+    root.VectorBackend = cfg.vector_backend
     root.ComputeBackend = cfg.compute_backend
     root.QualityMode = cfg.quality_mode
     root.LampMode = cfg.lamp_mode
@@ -407,6 +414,16 @@ class ReliefDialog(QtWidgets.QDialog):
             "Controla la resolución y el suavizado; los límites de memoria "
             "evitan que diseños grandes saturen FreeCAD.")
         form.addRow("Calidad del contorno",self.quality)
+        self.vectorizer = QtWidgets.QComboBox()
+        for label,value in (
+                ("Automático · VTracer o trazador interno","auto"),
+                ("Preferir VTracer · respaldo interno","vtracer"),
+                ("Solo trazador interno · seguro","builtin")):
+            self.vectorizer.addItem(label,value)
+        self.vectorizer.setToolTip(
+            "VTracer es opcional y corre en un Python externo aislado. "
+            "Sin VTracer se usa el trazador subpíxel incorporado.")
+        form.addRow("Vectorización",self.vectorizer)
         self.backend = QtWidgets.QComboBox()
         for label,value in (
                 ("Automático · AMD/OpenCL si disponible","auto"),
@@ -463,6 +480,8 @@ class ReliefDialog(QtWidgets.QDialog):
             self.bridge.setValue(cfg.bridge_width)
             quality_index=self.quality.findData(cfg.quality_mode)
             self.quality.setCurrentIndex(max(0,quality_index))
+            vector_index=self.vectorizer.findData(cfg.vector_backend)
+            self.vectorizer.setCurrentIndex(max(0,vector_index))
             compute_index=self.backend.findData(cfg.compute_backend)
             self.backend.setCurrentIndex(max(0,compute_index))
             self.lamp_mode.setChecked(cfg.lamp_mode)
@@ -540,6 +559,7 @@ class ReliefDialog(QtWidgets.QDialog):
         self.palette.setEnabled(not is_lamp)
         self.bridge.setEnabled(is_lamp)
         self.quality.setEnabled(is_lamp)
+        self.vectorizer.setEnabled(is_lamp)
         self.backend.setEnabled(is_lamp)
         if is_lamp:
             self.feedback.setText(
@@ -625,6 +645,7 @@ class ReliefDialog(QtWidgets.QDialog):
                            bridge_width=self.bridge.value(),
                            quality_mode=str(self.quality.currentData()),
                            compute_backend=str(self.backend.currentData()),
+                           vector_backend=str(self.vectorizer.currentData()),
                            **{name:field.value() for name,field in self.sizes.items()})
         dialog = QtWidgets.QProgressDialog(
             "Preparando diseño...", "Cancelar", 0, 100, self)
@@ -666,6 +687,11 @@ class ReliefDialog(QtWidgets.QDialog):
                      100*artwork.get("ink_density",0),
                      artwork.get("removed_cutouts",0)))
                 methods=meta.get("trace_methods",{})
+                fallbacks=meta.get("vector_fallbacks",{})
+                for name,error in fallbacks.items():
+                    App.Console.PrintWarning(
+                        "RS Maker NameForge | VTracer %s: %s · "
+                        "trazador interno activado\n" % (name,error))
                 App.Console.PrintMessage(
                     "RS Maker NameForge | Vectorización: frontal %s, "
                     "carcasa %s, cavidad %s\\n" %
