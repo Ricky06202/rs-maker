@@ -225,6 +225,14 @@ def build_masks(cfg,prepared,progress=None):
     timings["silhouette_s"]=round(perf_counter()-started,3)
     if not any(outer):
         raise ValueError("La imagen no tiene una silueta reconocible.")
+    # A black cat/logo is a solid silhouette with white windows. Manga
+    # line-art is the inverse: dark strokes should become perforations.
+    # Treating both as line art used to cut away nearly the entire cat.
+    art_style,ink_coverage=core.classify_artwork(
+        ink0,outer,art_w,art_h)
+    if progress:
+        progress(35,"Arte: "+(
+            "silueta negra" if art_style=="silhouette" else "ilustración de líneas"))
     rows=[y for y in range(art_h)
           if any(outer[y*art_w:(y+1)*art_w])]
     lower=max(rows)
@@ -246,11 +254,21 @@ def build_masks(cfg,prepared,progress=None):
     if progress:progress(40,"Abriendo detalles interiores")
     within=accelerator.morph(
         canvas,w,h,max(1,round(1.5*scale)),"erode",cpu_morph)
-    detail=accelerator.morph(
-        picture,w,h,max(1,round(.32*scale)),"open",cpu_morph)
-    cut=bytearray(
-        1 if detail[i] and within[i] and i//w<top_of_band else 0
-        for i in range(w*h))
+    if art_style=="silhouette":
+        # Keep black filled material and perforate white *negative spaces*:
+        # eyes, ear insets, bowtie and intentional body highlights.
+        cut=bytearray(
+            1 if within[i] and not picture[i] and i//w<top_of_band else 0
+            for i in range(w*h))
+    else:
+        # Manga/engraving style: the dark linework is the opening.
+        detail=accelerator.morph(
+            picture,w,h,max(1,round(.32*scale)),"open",cpu_morph)
+        cut=bytearray(
+            1 if detail[i] and within[i] and i//w<top_of_band else 0
+            for i in range(w*h))
+    cut,discarded_cutouts=core.clean_tiny_cutouts(
+        cut,w,h,max(2,round(.18*scale*scale)))
     if progress:progress(58,"Calando el nombre en el frente")
     tw,th=prepared["text_w"],prepared["text_h"]
     letters=prepared["letters"]
@@ -332,6 +350,8 @@ def build_masks(cfg,prepared,progress=None):
                 frame_mask=frame,rear_mask=rear_mask,cavity_mask=cavity,
                 scale=scale,
                 diagonal_repairs=front_diagonals+frame_diagonals,
+                artwork=dict(style=art_style,ink_density=round(ink_coverage,3),
+                             removed_cutouts=discarded_cutouts),
                 acceleration=dict(backend=accelerator.backend,
                                   detail=accelerator.detail,
                                   requested=accelerator.requested),
