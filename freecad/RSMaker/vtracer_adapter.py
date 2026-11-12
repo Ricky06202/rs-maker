@@ -63,12 +63,28 @@ def mask_png(mask,w,h):
             chunk(b"IDAT",zlib.compress(raw,5))+chunk(b"IEND",b""))
 
 
+PROBE_SCRIPT = (
+    "import vtracer; "
+    "assert hasattr(vtracer,'Config') or "
+    "hasattr(vtracer,'convert_raw_image_to_svg'), "
+    "'La instalación no tiene una API VTracer compatible'; "
+    "print('VTracer disponible, API compatible')"
+)
+
+
+def python_executable():
+    """Use exactly the same interpreter for the UI probe and the worker."""
+    configured=os.environ.get("RS_MAKER_VTRACER_PYTHON","").strip()
+    if configured:
+        return configured
+    if os.path.basename(sys.executable).lower().startswith("python"):
+        return sys.executable
+    return shutil.which("python3")
+
+
 def run_external(png,timeout=35):
     """The native vectorizer must not run inside the FreeCAD process."""
-    configured=os.environ.get("RS_MAKER_VTRACER_PYTHON","").strip()
-    binary=(configured or
-            (sys.executable if os.path.basename(sys.executable).lower().startswith("python")
-             else shutil.which("python3")))
+    binary=python_executable()
     if not binary:
         raise RuntimeError("No se encontró Python externo con VTracer")
     child=subprocess.run([binary,"-c",CHILD],input=png,
