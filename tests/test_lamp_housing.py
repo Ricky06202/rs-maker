@@ -98,6 +98,43 @@ class LampAssemblyTests(unittest.TestCase):
         self.assertEqual(len(housing.Solids),1)
         self.assertTrue(housing.isValid())
 
+    def test_filled_icon_uses_safe_subpixel_polygons_not_native_splines(self):
+        # A dense black icon (such as the uploaded cat) may contain many
+        # delicate inner counters. Avoid fitting native OpenCascade splines
+        # into those loops: the subpixel polygons are already smooth enough
+        # for the declared printable tolerance and have a safer topology.
+        dummy=types.ModuleType("PySide2")
+        dummy.QtCore=types.SimpleNamespace()
+        dummy.QtGui=types.SimpleNamespace()
+        dummy.QtSvg=types.SimpleNamespace()
+        app=types.ModuleType("FreeCAD")
+        app.Vector=FakeVector
+        part=types.ModuleType("Part")
+        part.makeCylinder=lambda *args:FakeSolid("cable")
+        paths=[[(0.5,0.5),(2.5,0.5),(2.5,2.5),(0.5,2.5)]]
+        meta=dict(pixels=(12,12),scale=2,artwork={"style":"silhouette"},
+                  front_mask=bytearray(144),rear_mask=bytearray(144),
+                  cavity_mask=bytearray([1])*144,
+                  front_paths=paths,rear_paths=paths,cavity_paths=paths,
+                  front_splines=["unsafe"],rear_splines=["unsafe"],
+                  cavity_splines=["unsafe"])
+        cfg=types.SimpleNamespace(width=120,height=150,depth=12)
+        attempts=[]
+
+        def fake_face(mask,w,h,scale,label,paths=None,splines=None):
+            attempts.append((label,paths,splines))
+            return FakePlanar(label)
+
+        with patch.dict(sys.modules,{"PySide2":dummy,
+                                     "FreeCAD":app,"Part":part}):
+            lamp=importlib.import_module("freecad.RSMaker.lamp_stencil")
+            with patch.object(lamp,"_to_part",side_effect=fake_face):
+                result=lamp.make_lamp(cfg,b"",".jpg",mask_meta=meta)
+        self.assertEqual(len(result),2)
+        self.assertEqual(len(attempts),3)
+        self.assertTrue(all(splines is None for _,_,splines in attempts))
+        self.assertTrue(all(rings is paths for _,rings,_ in attempts))
+
     def test_housing_requires_nonempty_led_cavity(self):
         fake_meta=dict(pixels=(8,8),scale=1,
                        rear_mask=bytearray([1])*64,
