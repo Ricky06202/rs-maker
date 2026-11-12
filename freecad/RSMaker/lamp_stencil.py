@@ -192,7 +192,16 @@ def prepare_inputs(cfg,source,extension,progress=None):
 
 
 def build_masks(cfg,prepared,progress=None):
-    """Heavy 2D raster/topology computation. Pure Python, safe on worker."""
+    """Heavy 2D raster/topology computation; optional OpenCL/AMD backend.
+
+    Only OpenCV UMat operations use OpenCL. CAD always runs after this on the
+    FreeCAD GUI thread. If unavailable or slower in practice, choose CPU.
+    """
+    from time import perf_counter
+    from .gpu_accel import ImageAccelerator, cpu_morph
+    started=perf_counter()
+    accelerator=ImageAccelerator(getattr(cfg, "compute_backend", "auto"))
+    timings={}
     scale=prepared["scale"]
     w,h=prepared["w"],prepared["h"]
     margin=prepared["margin"]
@@ -204,14 +213,16 @@ def build_masks(cfg,prepared,progress=None):
         if progress:progress(30,"Reutilizando silueta ya procesada")
     else:
         if progress:progress(20,"Analizando píxeles de la imagen")
-        ink0=_image_to_mask(prepared["image"])
+        ink0=accelerator.image_mask(prepared["image"], _image_to_mask)
         if progress:progress(23,"Calculando contorno exterior")
-        closed=core.close(ink0,art_w,art_h,max(1,round(1.3*scale)))
+        closed=accelerator.morph(ink0,art_w,art_h,max(1,round(1.3*scale)),
+                                 "close",cpu_morph)
         filled=core.fill_holes(closed,art_w,art_h)
-        outer=core.morph(
+        outer=accelerator.morph(
             core.keep_largest(filled,art_w,art_h),
-            art_w,art_h,max(1,round(1.0*scale)),"dilate")
+            art_w,art_h,max(1,round(1.0*scale)),"dilate",cpu_morph)
         _remember_art(prepared["cache_key"],ink0,outer)
+    timings["silhouette_s"]=round(perf_counter()-started,3)
     if not any(outer):
         raise ValueError("La imagen no tiene una silueta reconocible.")
     rows=[y for y in range(art_h)
@@ -230,10 +241,10 @@ def build_masks(cfg,prepared,progress=None):
     for y in range(top_of_band,h):
         canvas[y*w:(y+1)*w]=b"\x01"*w
     if progress:progress(40,"Abriendo detalles interiores")
-    within=core.morph(
-        canvas,w,h,max(1,round(1.5*scale)),"erode")
-    detail=core.open_mask(
-        picture,w,h,max(1,round(.32*scale)))
+    within=accelerator.morph(
+        canvas,w,h,max(1,round(1.5*scale)),"erode",cpu_morph)
+    detail=accelerator.morph(
+        picture,w,h,max(1,round(.32*scale)),"open",cpu_morph)
     cut=bytearray(
         1 if detail[i] and within[i] and i//w<top_of_band else 0
         for i in range(w*h))
@@ -256,7 +267,8 @@ def build_masks(cfg,prepared,progress=None):
         min_island=max(2,round(.2*scale*scale)))
     if progress:progress(79,"Reparando contornos")
     connected,front_diagonals=core.repair_diagonal_contacts(connected,w,h)
-    inner=core.morph(canvas,w,h,max(1,round(3.0*scale)),"erode")
+    inner=accelerator.morph(
+        canvas,w,h,max(1,round(3.0*scale)),"erode",cpu_morph)
     frame=bytearray(
         1 if canvas[i] and not inner[i] else 0
         for i in range(w*h))
@@ -267,6 +279,8 @@ def build_masks(cfg,prepared,progress=None):
     rear_mask,_=core.repair_diagonal_contacts(rear_mask,w,h)
     if len(core.connected_components(rear_mask,w,h))!=1:
         raise ValueError("La tapa trasera no conserva una silueta conectada.")
+    timings["mask_and_bridges_s"]=round(perf_counter()-started-
+                                        timings["silhouette_s"],3)
     if progress:progress(82,"Suavizando contornos fuera de la interfaz")
     mode=getattr(cfg,"quality_mode","balanced")
     paths={
@@ -274,11 +288,20 @@ def build_masks(cfg,prepared,progress=None):
         "frame_paths": core.cleaned_contours(frame,w,h,mode),
         "rear_paths": core.cleaned_contours(rear_mask,w,h,mode),
     }
-    if progress:progress(85,"Contornos preparados para el modelo CAD")
+    timings["total_preparation_s"]=round(perf_counter()-started,3)
+    timings["contours_s"]=round(timings["total_preparation_s"]-
+                               timings["silhouette_s"]-
+                               timings["mask_and_bridges_s"],3)
+    timings.update(accelerator.timings)
+    if progress:progress(85,"Contornos preparados · "+accelerator.backend)
     return dict(pixels=(w,h),bridges=bridges+frame_bridges,
                 removed_islands=removed,front_mask=connected,
                 frame_mask=frame,rear_mask=rear_mask,scale=scale,
-                diagonal_repairs=front_diagonals+frame_diagonals,**paths)
+                diagonal_repairs=front_diagonals+frame_diagonals,
+                acceleration=dict(backend=accelerator.backend,
+                                  detail=accelerator.detail,
+                                  requested=accelerator.requested),
+                timings=timings,**paths)
 
 
 def prepare_mask(cfg,source,extension,progress=None):
