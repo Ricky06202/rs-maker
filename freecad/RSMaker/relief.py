@@ -636,7 +636,8 @@ class ReliefDialog(QtWidgets.QDialog):
             "utf-8","replace").strip()
         if self._vtracer_timed_out:
             msg="La comprobación excedió 5 segundos; usaremos trazador interno."
-        elif process.exitStatus()==process.NormalExit and process.exitCode()==0:
+        elif (process.exitStatus()==process.NormalExit and
+              process.exitCode()==0 and process.error()==process.UnknownError):
             msg="VTracer disponible para NameForge."
         else:
             msg=("VTracer no disponible en ese Python. "
