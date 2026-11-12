@@ -424,6 +424,18 @@ class ReliefDialog(QtWidgets.QDialog):
             "VTracer es opcional y corre en un Python externo aislado. "
             "Sin VTracer se usa el trazador subpíxel incorporado.")
         form.addRow("Vectorización",self.vectorizer)
+        self.vtracer_check = QtWidgets.QPushButton("Comprobar VTracer")
+        self.vtracer_check.setToolTip(
+            "Comprueba el Python externo sin bloquear FreeCAD. "
+            "Se usa RS_MAKER_VTRACER_PYTHON cuando está definido.")
+        self.vtracer_check.clicked.connect(self._check_vtracer)
+        self.vtracer_status = QtWidgets.QLabel("No comprobado")
+        self.vtracer_status.setWordWrap(True)
+        vtracer_row=QtWidgets.QHBoxLayout()
+        vtracer_row.addWidget(self.vtracer_check)
+        vtracer_row.addWidget(self.vtracer_status,1)
+        form.addRow("Disponibilidad VTracer",vtracer_row)
+        self._vtracer_process = None
         self.backend = QtWidgets.QComboBox()
         for label,value in (
                 ("Automático · AMD/OpenCL si disponible","auto"),
@@ -560,6 +572,7 @@ class ReliefDialog(QtWidgets.QDialog):
         self.bridge.setEnabled(is_lamp)
         self.quality.setEnabled(is_lamp)
         self.vectorizer.setEnabled(is_lamp)
+        self.vtracer_check.setEnabled(is_lamp and self._vtracer_process is None)
         self.backend.setEnabled(is_lamp)
         if is_lamp:
             self.feedback.setText(
@@ -581,6 +594,61 @@ class ReliefDialog(QtWidgets.QDialog):
                                                           target.text(), file_filter)
         if chosen:
             target.setText(chosen)
+
+    def _check_vtracer(self):
+        """Nonblocking, out-of-process self-test; no compiled Rust in FreeCAD."""
+        from . import vtracer_adapter
+        from .lamp_stencil import QtCore
+        binary=vtracer_adapter.python_executable()
+        if not binary:
+            self.vtracer_status.setText(
+                "No hay Python externo. Configura RS_MAKER_VTRACER_PYTHON.")
+            return
+        if self._vtracer_process is not None:
+            return
+        process=QtCore.QProcess(self)
+        process.setProcessChannelMode(QtCore.QProcess.MergedChannels)
+        self._vtracer_process=process
+        self._vtracer_timed_out=False
+        self.vtracer_check.setEnabled(False)
+        self.vtracer_status.setText("Comprobando Python externo…")
+
+        def finished(*args):
+            self._finish_vtracer_check(process)
+
+        process.finished.connect(finished)
+        process.errorOccurred.connect(finished)
+        process.start(binary,["-c",vtracer_adapter.PROBE_SCRIPT])
+
+        def timeout():
+            if self._vtracer_process is process and (
+                    process.state()!=QtCore.QProcess.NotRunning):
+                self._vtracer_timed_out=True
+                process.kill()
+
+        QtCore.QTimer.singleShot(5000,timeout)
+
+    def _finish_vtracer_check(self, process):
+        if self._vtracer_process is not process:
+            return
+        self._vtracer_process=None
+        output=bytes(process.readAllStandardOutput()).decode(
+            "utf-8","replace").strip()
+        if self._vtracer_timed_out:
+            msg="La comprobación excedió 5 segundos; usaremos trazador interno."
+        elif process.exitStatus()==process.NormalExit and process.exitCode()==0:
+            msg="VTracer disponible para NameForge."
+        else:
+            msg=("VTracer no disponible en ese Python. "
+                 "Comprueba RS_MAKER_VTRACER_PYTHON e instala la biblioteca.")
+            if output:
+                import FreeCAD as App
+                App.Console.PrintWarning(
+                    "RS Maker | Comprobación VTracer: %s\\n" %
+                    output[-300:])
+        self.vtracer_status.setText(msg)
+        self.vtracer_check.setEnabled(True)
+        process.deleteLater()
 
     def _build_lamp_masks_responsive(self, cfg, progress, dialog):
         """Qt signals keep the dialog alive while mask processing runs off UI.
