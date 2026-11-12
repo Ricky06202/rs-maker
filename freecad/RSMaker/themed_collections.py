@@ -22,7 +22,9 @@ def make_space_scene(cfg, Part, V, ztop):
     cx,cy=cfg.width/2.0,cfg.depth/2.0
     platform=mk(60,44,2,V(cx-30,cy-22,ztop))
     rocket=cyl(8.5,18,V(cx,cy,ztop+1.5))
-    nose=sphere(8.0,V(cx,cy,ztop+20.0))
+    # Explicit dome segment: default Part.makeSphere behavior varies across
+    # FreeCAD/CadQuery and a dome above the cylinder could float in space.
+    nose=sphere(8.0,V(cx,cy,ztop+18.5),V(0,0,1),0,90,360)
     fins=mk(31,6,3.0,V(cx-15.5,cy-3,ztop+4))
     # Entire decoration is fused into its printable mounting platform.
     scene=platform.fuse(rocket).fuse(nose).fuse(fins)
@@ -56,10 +58,12 @@ def make_astro_chibi(cfg, Part, V):
     def p(x,y,z):
         return V(cx+x*sc,cy+y*sc,z0+z*sc)
     torso=cyl(7.3*sc,15*sc,p(0,0,4.5))
-    helmet=sphere(9.5*sc,p(0,0,21))
+    # The head requires a FULL sphere, not an upper hemisphere disconnected
+    # above the torso (a bug caught by independent OpenCascade tests).
+    helmet=sphere(9.5*sc,p(0,0,21),V(0,0,1),-90,90,360)
     figure=torso.fuse(helmet)
     for dx in (-4.5,4.5):
-        foot=sphere(3.8*sc,p(dx,-1,5.0))
+        foot=sphere(3.8*sc,p(dx,-1,5.0),V(0,0,1),-90,90,360)
         figure=figure.fuse(foot)
     # Small engraved face visor; not a separate loose part.
     visor=mk(11*sc,3*sc,5*sc,p(-5.5,-10,20))
@@ -78,12 +82,12 @@ def make_crab_chibi(cfg, Part, V):
     z0=cfg.floor+.4
     def p(x,y,z):
         return V(cx+x*sc,cy+y*sc,z0+z*sc)
-    body=sphere(10.0*sc,p(0,0,14))
+    body=sphere(10.0*sc,p(0,0,14),V(0,0,1),-90,90,360)
     for dx in (-10.0,10.0):
-        body=body.fuse(sphere(4.9*sc,p(dx,0,15)))
+        body=body.fuse(sphere(4.9*sc,p(dx,0,15),V(0,0,1),-90,90,360))
     for dx in (-5.0,5.0):
-        body=body.fuse(sphere(3.7*sc,p(dx,-4,7.5)))
-        body=body.fuse(sphere(2.6*sc,p(dx,-5,22)))
+        body=body.fuse(sphere(3.7*sc,p(dx,-4,7.5),V(0,0,1),-90,90,360))
+        body=body.fuse(sphere(2.6*sc,p(dx,-5,22),V(0,0,1),-90,90,360))
     if cfg.expression=="Sorprendida":
         mouth=cyl(1.6*sc,2.3*sc,p(0,-10.3,13),V(0,1,0))
         body=body.cut(mouth)

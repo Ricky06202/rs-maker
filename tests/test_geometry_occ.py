@@ -39,7 +39,8 @@ class TestGeometryOCC(unittest.TestCase):
         part.makeBox=lambda x,y,z,p=(0,0,0):Shape(cq.Solid.makeBox(x,y,z,cq.Vector(*p)))
         part.makeCylinder=lambda r,h,p=(0,0,0),direction=(0,0,1):Shape(
             cq.Solid.makeCylinder(r,h,cq.Vector(*p),cq.Vector(*direction)))
-        part.makeSphere=lambda r,p=(0,0,0):Shape(cq.Solid.makeSphere(r,cq.Vector(*p)))
+        part.makeSphere=lambda r,p=(0,0,0),d=(0,0,1),a1=0,a2=90,a3=360:Shape(
+            cq.Solid.makeSphere(r,cq.Vector(*p),cq.Vector(*d),a1,a2,a3))
         part.makePolygon=lambda points:cq.Wire.makePolygon([cq.Vector(*p) for p in points])
         part.Face=Face
         return app,part
