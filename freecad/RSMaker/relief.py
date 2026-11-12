@@ -651,6 +651,14 @@ class ReliefDialog(QtWidgets.QDialog):
                 import FreeCAD as App
                 diagnostics=meta.get("acceleration",{})
                 timings=meta.get("timings",{})
+                artwork=meta.get("artwork",{})
+                App.Console.PrintMessage(
+                    "RS Maker NameForge | Tipo de imagen: %s | "
+                    "densidad de negro: %.1f%% | "
+                    "microhuecos descartados: %d\\n" %
+                    (artwork.get("style","no detectado"),
+                     100*artwork.get("ink_density",0),
+                     artwork.get("removed_cutouts",0)))
                 methods=meta.get("trace_methods",{})
                 App.Console.PrintMessage(
                     "RS Maker NameForge | Vectorización: frontal %s, "
