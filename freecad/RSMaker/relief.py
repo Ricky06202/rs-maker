@@ -573,8 +573,11 @@ class ReliefDialog(QtWidgets.QDialog):
         from .nameforge_worker import MaskWorker
         from .lamp_stencil import QtCore
         data=_read_source(cfg,self.root)
+        from . import crash_diagnostics
+        crash_diagnostics.checkpoint("qt:prepare-inputs")
         prepared=lamp_stencil.prepare_inputs(
             cfg,data,os.path.splitext(cfg.svg_path)[1].lower(),progress)
+        crash_diagnostics.checkpoint("qt:prepared")
         worker=MaskWorker(cfg,prepared,self)
         loop=QtCore.QEventLoop(self)
 
@@ -641,9 +644,12 @@ class ReliefDialog(QtWidgets.QDialog):
 
         try:
             cfg.validate()
+            from . import crash_diagnostics
+            crash_diagnostics.start_generation(cfg)
             meta = (self._build_lamp_masks_responsive(cfg, on_progress, dialog)
                     if cfg.lamp_mode else None)
             if cfg.lamp_mode:
+                crash_diagnostics.checkpoint("cad:start")
                 on_progress(86, "Construyendo sólidos en FreeCAD (fase CAD)")
             self.root = save_project(
                 cfg, self.root, progress=on_progress, lamp_mask_meta=meta)
@@ -676,9 +682,12 @@ class ReliefDialog(QtWidgets.QDialog):
                      timings.get("silhouette_s",0),
                      timings.get("mask_and_bridges_s",0),
                      timings.get("contours_s",0)))
+            crash_diagnostics.checkpoint("generate:success")
             dialog.setValue(100)
             success = True
         except Exception as exc:
+            from . import crash_diagnostics
+            crash_diagnostics.checkpoint("generate:python-error",error=type(exc).__name__)
             if "cancelada" not in str(exc).lower():
                 QtWidgets.QMessageBox.critical(
                     self, "No se pudo generar NameForge", str(exc))
