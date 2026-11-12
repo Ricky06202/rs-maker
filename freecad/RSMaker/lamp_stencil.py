@@ -228,7 +228,10 @@ def build_masks(cfg,prepared,progress=None):
     rows=[y for y in range(art_h)
           if any(outer[y*art_w:(y+1)*art_w])]
     lower=max(rows)
-    dy=top_of_band+round(2*scale)-margin-lower
+    # Create a deliberate >=5 mm overlap with the nameplate: a point-like
+    # junction produces fragile prints and ambiguous exterior vector loops.
+    overlap=max(round(5.0*scale),round(cfg.bridge_width*scale*2.5))
+    dy=top_of_band+overlap-margin-lower
     canvas=bytearray(w*h)
     picture=bytearray(w*h)
     for y in range(art_h):
@@ -267,10 +270,10 @@ def build_masks(cfg,prepared,progress=None):
         min_island=max(2,round(.2*scale*scale)))
     if progress:progress(79,"Reparando contornos")
     connected,front_diagonals=core.repair_diagonal_contacts(connected,w,h)
-    rear_mask=core.fill_holes(connected,w,h)
-    rear_mask,_=core.repair_diagonal_contacts(rear_mask,w,h)
-    if len(core.connected_components(rear_mask,w,h))!=1:
-        raise ValueError("La tapa trasera no conserva una silueta conectada.")
+    # Rear shape must originate from the main silhouette + rectangular name
+    # plate, not from the detailed front. Stencil bridges may close exterior
+    # pockets; filling their holes used to generate diagonal rear wedges.
+    rear_mask=core.solid_rear_envelope(canvas,w,h)
     # The cavity is offset *inside the very same rear silhouette*. It no
     # longer depends on a separately sampled exterior frame boundary. One
     # outer solid minus this inset cavity is always the same physical shell.
@@ -294,28 +297,36 @@ def build_masks(cfg,prepared,progress=None):
     frame_diagonals=0
     timings["mask_and_bridges_s"]=round(perf_counter()-started-
                                         timings["silhouette_s"],3)
-    if progress:progress(82,"Suavizando contornos fuera de la interfaz")
+    if progress:progress(82,"Vectorizando contornos a precisión subpíxel")
+    from .vector_trace import trace_or_fallback
     mode=getattr(cfg,"quality_mode","balanced")
+    front_paths,front_trace=trace_or_fallback(connected,w,h,mode)
+    rear_paths,rear_trace=trace_or_fallback(rear_mask,w,h,mode)
+    cavity_paths,cavity_trace=trace_or_fallback(cavity,w,h,mode)
     paths={
-        "front_paths": core.cleaned_contours(connected,w,h,mode),
-        "frame_paths": core.cleaned_contours(frame,w,h,mode),
-        "rear_paths": core.cleaned_contours(rear_mask,w,h,mode),
-        "cavity_paths": core.cleaned_contours(cavity,w,h,mode),
+        "front_paths": front_paths,
+        "rear_paths": rear_paths,
+        "cavity_paths": cavity_paths,
+        "trace_methods": {
+            "front": front_trace,
+            "rear": rear_trace,
+            "cavity": cavity_trace,
+        },
     }
     if mode!="fast":
         from .curve_fit import spline_spans
         paths.update({
-            "front_splines": [spline_spans(r) for r in paths["front_paths"]],
-            "frame_splines": [spline_spans(r) for r in paths["frame_paths"]],
-            "rear_splines": [spline_spans(r) for r in paths["rear_paths"]],
-            "cavity_splines": [spline_spans(r) for r in paths["cavity_paths"]],
+            "front_splines": [spline_spans(r) for r in front_paths],
+            "rear_splines": [spline_spans(r) for r in rear_paths],
+            "cavity_splines": [spline_spans(r) for r in cavity_paths],
         })
     timings["total_preparation_s"]=round(perf_counter()-started,3)
     timings["contours_s"]=round(timings["total_preparation_s"]-
                                timings["silhouette_s"]-
                                timings["mask_and_bridges_s"],3)
     timings.update(accelerator.timings)
-    if progress:progress(85,"Contornos preparados · "+accelerator.backend)
+    if progress:
+        progress(85,"Trazado %s · %s" % (front_trace,accelerator.backend))
     return dict(pixels=(w,h),bridges=bridges+frame_bridges,
                 removed_islands=removed,front_mask=connected,
                 frame_mask=frame,rear_mask=rear_mask,cavity_mask=cavity,
