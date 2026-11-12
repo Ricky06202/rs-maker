@@ -155,3 +155,67 @@ el diagnóstico. Queda pendiente comprobar su generación completa en la versió
 de FreeCAD del usuario. Un cierre nativo de FreeCAD puede deberse también a
 OpenCascade o a controladores, y no debe darse por solucionado hasta la prueba
 real.
+
+## Diagnóstico de cierres nativos en NixOS y Flatpak (noviembre de 2026)
+
+El usuario informó que **FreeCAD se sigue cerrando con una imagen simple de
+gato negro**, incluso después de corregir la clasificación de siluetas.
+Las pruebas Python pueden detectar errores del complemento, pero no pueden
+recuperarse si OpenCV/OpenCL, Qt o OpenCascade terminan el proceso con
+`SIGSEGV`, `SIGILL` o un aborto nativo. El archivo original se verificó
+como JPG válido, y el procesamiento simplificado mostraba pocos contornos
+principales; no debe atribuirse automáticamente el fallo a la complejidad.
+
+**Nuevas protecciones:** el trazado subpíxel para siluetas negras sigue
+generando coordenadas vectoriales, pero al construir CAD se prefiere
+`Part.makePolygon` sobre cada anillo cerrado, evitando llamadas a
+`Part.BSplineCurve.approximate` en dibujos rellenos con microhuecos.
+Las ilustraciones de líneas conservan el ajuste B-spline. Existe además
+el modo diagnóstico por entorno `RSM_NAMEFORGE_SAFE_MODE=1`, que fuerza
+CPU (sin importar OpenCV/OpenCL) y contornos poligonales subpíxel para
+todos los diseños durante una ejecución. No modifica configuraciones
+persistentes ni requiere desinstalar controladores AMD.
+
+NameForge guarda marcadores de etapa con `fsync` en el archivo
+`$XDG_CACHE_HOME/rs-maker/nameforge-crash.log` (o
+`~/.cache/rs-maker/nameforge-crash.log` si no existe XDG_CACHE_HOME).
+No almacena nombre/ruta de la imagen, el texto de la placa ni credenciales.
+En Flatpak el archivo suele aparecer en
+`~/.var/app/org.freecad.FreeCAD/cache/rs-maker/nameforge-crash.log`.
+El **último marcador antes de un cierre** permite distinguir entre
+`opencl:self-test`, `worker:vector-tracing`, `cad:part-makeface`,
+`cad:housing-cut-cavity` y otras etapas. Un cierre sin excepción Python
+puede investigarse con `coredumpctl info`.
+
+Para detectar si FreeCAD está instalado como Flatpak en NixOS:
+
+```bash
+flatpak info org.freecad.FreeCAD
+command -v freecad || command -v FreeCAD
+```
+
+Para reproducir **sin OpenCL ni aproximación B-spline**, según la
+instalación que esté usando la persona:
+
+```bash
+# Instalación Flatpak, también válida sobre NixOS:
+flatpak run --env=RSM_NAMEFORGE_SAFE_MODE=1 org.freecad.FreeCAD 2>&1 | tee ~/freecad-nameforge.log
+
+# Instalación nativa en NixOS:
+RSM_NAMEFORGE_SAFE_MODE=1 freecad 2>&1 | tee ~/freecad-nameforge.log
+```
+
+Tras el cierre:
+
+```bash
+find ~/.cache ~/.var/app -name nameforge-crash.log -print -exec tail -n 30 {} \; 2>/dev/null
+coredumpctl --no-pager info
+```
+
+No recomendar recompilar paquetes, cambiar OpenCL ni alterar variables de
+OpenBLAS sin identificar primero el proceso y la señal del fallo. Se han
+reportado problemas específicos del Flatpak de FreeCAD en CPU AMD/OpenBLAS
+que no deben confundirse con un crash causado por una imagen.
+
+**Estado de verificación:** pruebas automatizadas de las rutas de seguridad
+y de los logs aprobadas; falta la prueba con FreeCAD real en NixOS.
