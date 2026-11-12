@@ -340,25 +340,54 @@ def prepare_mask(cfg,source,extension,progress=None):
             core.to_svg(frame_rings,w,h,meta["scale"]),meta)
 
 
-def _spline_wire(spans,w,h,pixels_per_mm):
-    """Turn an already-fitted contour plan into actual OpenCascade curves.
+def _spline_tolerance(pixels_per_mm):
+    """Maximum allowed geometric deviation for a smooth fitted CAD curve.
 
-    Per-span interpolation avoids historical periodic B-spline seam problems.
-    Each span ends on the next one's start; real corners remain separate.
+    Always far smaller than the 1.0 mm minimum support bridge and bounded in
+    physical units so making a lamp bigger does not round away extra detail.
+    """
+    return max(0.035,min(0.20,0.78/float(pixels_per_mm)))
+
+
+def _spline_wire(spans,w,h,pixels_per_mm):
+    """Approximate jagged pixels instead of interpolating every pixel corner.
+
+    Critically, BSplineCurve.interpolate() passes THROUGH each sample and
+    therefore faithfully reproduces pixel stair-steps. approximate() fits a
+    C1 curve within a measured geometric error. The endpoints are connected
+    back to the exact planned vertices so all wires are watertight. Deliberate
+    tips and nameplate corners are kept by the precomputed spline spans.
     """
     import FreeCAD as App
     import Part
+    tol=_spline_tolerance(pixels_per_mm)
     edges=[]
     for span in spans:
         vectors=[App.Vector(float(x)/pixels_per_mm,
                             float(h-y)/pixels_per_mm,0)
                  for x,y in span]
-        if len(vectors)<4:
+        if len(vectors)<6:
             edges.extend(Part.makePolygon(vectors).Edges)
-        else:
+            continue
+        try:
             spline=Part.BSplineCurve()
-            spline.interpolate(Points=vectors,PeriodicFlag=False)
-            edges.append(spline.toShape())
+            spline.approximate(Points=vectors,DegMin=3,DegMax=5,
+                               Continuity="C1",Tolerance=tol)
+            fitted=spline.toShape()
+            first=fitted.Vertexes[0].Point
+            last=fitted.Vertexes[-1].Point
+            if first.distanceToPoint(vectors[0])>tol*1.75 or (
+                    last.distanceToPoint(vectors[-1])>tol*1.75):
+                raise ValueError("La curva suavizada se alejó del trazo")
+            if first.distanceToPoint(vectors[0])>1e-6:
+                edges.append(Part.makeLine(vectors[0],first))
+            edges.append(fitted)
+            if last.distanceToPoint(vectors[-1])>1e-6:
+                edges.append(Part.makeLine(last,vectors[-1]))
+        except Exception:
+            # A degenerate or very straight span should not invalidate the
+            # entire engraving; retain this one as a trustworthy polyline.
+            edges.extend(Part.makePolygon(vectors).Edges)
     wire=Part.Wire(edges)
     if not wire.isClosed() or not wire.isValid():
         raise ValueError("La curva B-spline no quedó cerrada")
