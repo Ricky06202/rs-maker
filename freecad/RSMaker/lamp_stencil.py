@@ -421,7 +421,17 @@ def _to_part(mask,w,h,pixels_per_mm,label,paths=None,splines=None):
                 if len(ring)<3:
                     continue
                 if plans is not None:
-                    wire=_spline_wire(plans[index],w,h,pixels_per_mm)
+                    try:
+                        wire=_spline_wire(plans[index],w,h,pixels_per_mm)
+                    except Exception:
+                        # An invalid micro-detail must not force the entire
+                        # artwork back to jagged polygons. Keep real fitted
+                        # curves for all other printable contour rings.
+                        vectors=[App.Vector(float(x)/pixels_per_mm,
+                                            float(h-y)/pixels_per_mm,0)
+                                 for x,y in ring]
+                        wire=Part.Wire(
+                            Part.makePolygon(vectors+[vectors[0]]).Edges)
                 else:
                     vectors=[App.Vector(float(x)/pixels_per_mm,
                                         float(h-y)/pixels_per_mm,0)
