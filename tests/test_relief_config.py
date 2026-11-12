@@ -54,6 +54,15 @@ class ReliefConfigTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"procesador"):
             replace(self.cfg,compute_backend="cuda").validate()
 
+    def test_viewport_tessellation_is_finer_at_high_quality(self):
+        fast = relief.viewport_mesh_quality("fast")
+        balanced = relief.viewport_mesh_quality("balanced")
+        high = relief.viewport_mesh_quality("high")
+        self.assertLess(high[0], balanced[0])
+        self.assertLess(balanced[0], fast[0])
+        self.assertLess(high[1], balanced[1])
+        self.assertLess(balanced[1], fast[1])
+
     def test_valid_full_solid_parameters(self):
         self.assertEqual(self.cfg.validate().depth, 12.0)
         self.assertGreaterEqual(self.cfg.width, 30)

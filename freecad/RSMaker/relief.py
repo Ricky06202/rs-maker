@@ -74,6 +74,20 @@ LAMP_FRONT = 2.0  # flat, printable translucent front plate (mm)
 LAMP_WALL = 3.0   # adhesive frame width (mm)
 
 
+def viewport_mesh_quality(mode):
+    """FreeCAD preview tessellation (percent deviation, angular degrees).
+
+    Curved OCC geometry can still look faceted if the Part view provider
+    tessellates it with coarse default values.
+    """
+    settings = {
+        "fast": (0.5, 28.5),
+        "balanced": (0.15, 15.0),
+        "high": (0.06, 8.0),
+    }
+    return settings[mode]
+
+
 def _svg_xml(cfg, previous=None, previous_path=None):
     if previous is not None and previous_path == cfg.svg_path:
         # Embedded copy guarantees reproducibility even if source was moved.
@@ -311,6 +325,12 @@ def save_project(cfg, root=None, progress=None, lamp_mask_meta=None):
             part.Label = label
             part.Shape = shape
             part.ViewObject.ShapeColor = color
+            if cfg.lamp_mode and App.GuiUp:
+                # View-only tessellation: independent of the actual accurate
+                # BSpline BRep, and applicable to exports using view meshing.
+                deviation, angle = viewport_mesh_quality(cfg.quality_mode)
+                part.ViewObject.Deviation = deviation
+                part.ViewObject.AngularDeflection = angle
         for key, obsolete in old.items():
             if key not in needed:
                 doc.removeObject(obsolete.Name)
