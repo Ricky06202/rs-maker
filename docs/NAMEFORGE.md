@@ -219,3 +219,60 @@ que no deben confundirse con un crash causado por una imagen.
 
 **Estado de verificación:** pruebas automatizadas de las rutas de seguridad
 y de los logs aprobadas; falta la prueba con FreeCAD real en NixOS.
+
+
+## Motor VTracer opcional (motor externo aislado)
+
+Desde NameForge esquema **7**, en el modo Lámpara se puede elegir
+**Vectorización: Automático / Preferir VTracer / Solo trazador interno**.
+La selección se conserva al editar el proyecto. VTracer es un vectorizador
+open source MIT, opcional: **no se instala ni se ejecuta automáticamente en
+el ordenador del usuario**. Sin él, NameForge sigue funcionando con su
+trazado subpíxel incorporado.
+
+**Seguridad de FreeCAD:** el módulo `vtracer_adapter.py` envía una máscara
+PNG de blanco/negro (generada en memoria) a un **proceso Python externo**
+y recoge el SVG de salida. El código Rust de VTracer **no se carga dentro
+del proceso de FreeCAD**: si falla con una señal nativa o devuelve un SVG
+anómalo, NameForge vuelve a su trazador anterior sin cerrar FreeCAD.
+Se admite la API estable de VTracer 0.6.x
+(`convert_raw_image_to_svg`) y la API 1.0 alfa
+(`Config.bw().convert_bytes`). El modo seguro
+`RSM_NAMEFORGE_SAFE_MODE=1` lo desactiva totalmente.
+
+Los comandos SVG admitidos son M/L/H/V/C/S/Q/T/Z, con sus variantes
+relativas; las curvas se subdividen a una tolerancia subpíxel.
+**Antes de generar el CAD se compara cada contorno contra la máscara
+original**: debe corresponder a un anillo de la misma orientación,
+tamaño y ubicación. Los microhuecos no recuperados se reconstruyen con
+el trazador interno, de forma localizada. SVG con transformaciones o
+comandos desconocidos, rutas abiertas o salidas demasiado grandes
+activan el respaldo. La consola indica el número de contornos aceptados:
+`VTracer 12/14` significa que se tomaron doce contornos de VTracer y los
+otros dos permanecieron conservadores.
+
+**NixOS:** el complemento busca un `python3` ejecutable que **pueda
+importar el módulo Python `vtracer`**. No es suficiente instalar
+solamente el ejecutable CLI `vtracer`: se necesita el binding Python
+en el intérprete utilizado por el proceso externo. Puedes especificar
+otro intérprete con `RS_MAKER_VTRACER_PYTHON=/ruta/al/python`
+antes de lanzar FreeCAD y verificarlo con:
+
+```bash
+/ruta/al/python -c 'import vtracer; print(vtracer.__file__)'
+```
+
+Para FreeCAD instalado como Flatpak, este intérprete debe ser accesible
+**dentro del sandbox Flatpak**; una instalación de Python únicamente
+en el host NixOS puede no ser visible. No cambies bibliotecas de Qt
+ni OpenCascade para instalar VTracer: el motor externo es opcional.
+Si el enlace externo no está disponible, el diagnóstico de consola
+lo indicará y NameForge utilizará el motor interno.
+
+**Limitaciones:** por ahora VTracer perfecciona la vectorización
+**de las máscaras de material del frontal, trasera y cavidad**, no la
+interpretación semántica de una ilustración. Todavía deben respetarse
+espesor mínimo, agujeros de letras, puentes y tolerancias de impresión.
+Los tests de CI usan SVG y un motor externo simulados para confirmar
+las rutas de compatibilidad, aislamiento y respaldo; **no prueban
+una impresión ni los controladores de FreeCAD del usuario**.
