@@ -511,7 +511,7 @@ def _to_part(mask,w,h,pixels_per_mm,label,paths=None,splines=None):
 
 
 def _closed_back_housing(meta,w,h,scale,cfg,front_thickness=2.0,
-                         rear_thickness=2.0,progress=None):
+                         rear_thickness=2.0,progress=None,robust=False):
     """One watertight body, milled open from one outer extrusion.
 
     The previous rear.fuse(frame) could return two solids because the two
@@ -533,7 +533,7 @@ def _closed_back_housing(meta,w,h,scale,cfg,front_thickness=2.0,
             rear_face=_to_part(
                 meta["rear_mask"],w,h,scale,"perímetro de carcasa",
                 meta.get("rear_paths") if smooth else None,
-                meta.get("rear_splines") if smooth else None)
+                meta.get("rear_splines") if smooth and not robust else None)
             cavity_mask=meta.get("cavity_mask")
             if cavity_mask is None:
                 # Compatibility when editing projects generated before this
@@ -545,7 +545,7 @@ def _closed_back_housing(meta,w,h,scale,cfg,front_thickness=2.0,
             inset_face=_to_part(
                 cavity_mask,w,h,scale,"cavidad interior",
                 meta.get("cavity_paths") if smooth else None,
-                meta.get("cavity_splines") if smooth else None)
+                meta.get("cavity_splines") if smooth and not robust else None)
             crash_diagnostics.checkpoint("cad:housing-extrude")
             outer_solid=rear_face.extrude(App.Vector(0,0,height))
             # Extend the tool beyond the top to make a clean, open cavity.
@@ -573,7 +573,8 @@ def _closed_back_housing(meta,w,h,scale,cfg,front_thickness=2.0,
             crash_diagnostics.checkpoint("cad:housing-valid")
             if progress:
                 progress(96,"Carcasa integrada · "+(
-                    "curvas CAD" if smooth else "contornos seguros"))
+                    ("polígonos subpíxel" if robust else "curvas CAD")
+                    if smooth else "contornos seguros"))
             return housing
         except Exception as exc:
             failures.append(("curvas" if smooth else "seguro")+": "+str(exc))
@@ -591,18 +592,29 @@ def make_lamp(cfg,source,extension,progress=None,mask_meta=None):
         cfg,prepare_inputs(cfg,source,extension,progress),progress)
     w,h=meta["pixels"]
     scale=meta["scale"]
+    from . import crash_diagnostics
+    # Filled-black icons need continuous, reliable subpixel polygons: their
+    # pupils and tiny counters can make OCC cubic approximation singular.
+    # Converting those loops to CAD polygons keeps vectorized subpixel
+    # coordinates while avoiding high-degree native spline fitting.
+    robust=(meta.get("artwork",{}).get("style")=="silhouette" or
+            os.environ.get("RSM_NAMEFORGE_SAFE_MODE")=="1")
+    crash_diagnostics.checkpoint("cad:profile",
+        profile="subpixel-polygons" if robust else "bspline")
     front_thickness=2.0
     if cfg.depth-front_thickness-2.0<4.0:
         raise ValueError("La lámpara necesita espacio para LED y fondo.")
     if progress:progress(86,"Construyendo frontal y carcasa monolítica")
     front=_to_part(
         meta["front_mask"],w,h,scale,"frente",
-        meta.get("front_paths"),meta.get("front_splines")).extrude(
+        meta.get("front_paths"),
+        None if robust else meta.get("front_splines")).extrude(
             App.Vector(0,0,front_thickness))
     front.translate(App.Vector(0,0,cfg.depth-front_thickness))
     housing=_closed_back_housing(meta,w,h,scale,cfg,
                                  front_thickness=front_thickness,
-                                 rear_thickness=2.0,progress=progress)
+                                 rear_thickness=2.0,progress=progress,
+                                 robust=robust)
     if not front.isValid() or len(front.Solids)!=1:
         raise ValueError(
             "El frente calado no es una sola pieza imprimible. "
