@@ -96,6 +96,26 @@ class VTracerAdapterTests(unittest.TestCase):
         self.assertAlmostEqual(min(ys),5)
         self.assertAlmostEqual(max(ys),35)
 
+    def test_nixos_probe_uses_same_python_as_worker(self):
+        import os
+        import sys
+        import subprocess
+        with patch.dict(os.environ,{"RS_MAKER_VTRACER_PYTHON":sys.executable}):
+            self.assertEqual(vt.python_executable(),sys.executable)
+            result=subprocess.run([vt.python_executable(),"-c",
+                                   vt.PROBE_SCRIPT],
+                                  capture_output=True,text=True,
+                                  timeout=5,check=False)
+            # The stable VTracer wheel is installed in the GitHub Python job;
+            # locally absent VTracer is an expected graceful failure.
+            if result.returncode==0:
+                self.assertIn("VTracer disponible",result.stdout)
+            else:
+                self.assertTrue(result.stderr.strip())
+        with patch.dict(os.environ,{"RS_MAKER_VTRACER_PYTHON":"/path/to/python"},
+                        clear=False):
+            self.assertEqual(vt.python_executable(),"/path/to/python")
+
     def test_native_vectorizer_is_in_a_child_process(self):
         def crashed(*args,**kwargs):
             return type("Result",(),{"returncode":-11,"stderr":b"SIGSEGV","stdout":b""})()
