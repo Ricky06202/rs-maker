@@ -41,22 +41,28 @@ class ImageAccelerator:
         if preference == "cpu":
             self.detail = "CPU elegida manualmente"
             return
+        from . import crash_diagnostics
+        crash_diagnostics.checkpoint("opencl:import-cv2",requested=preference)
         try:
             import cv2
             import numpy as np
+            crash_diagnostics.checkpoint("opencl:probe")
             if not hasattr(cv2, "ocl") or not cv2.ocl.haveOpenCL():
                 self.detail = "No hay dispositivo OpenCL disponible para OpenCV"
                 return
+            crash_diagnostics.checkpoint("opencl:enable")
             cv2.ocl.setUseOpenCL(True)
             if not cv2.ocl.useOpenCL():
                 self.detail = "OpenCV no pudo activar OpenCL"
                 return
             # Trigger a real GPU-aware kernel, not just a feature check.
+            crash_diagnostics.checkpoint("opencl:self-test")
             source = cv2.UMat(np.ones((64, 64), dtype=np.uint8))
             result = cv2.dilate(source, np.ones((3, 3), dtype=np.uint8))
             if result.get().shape != (64, 64):
                 raise RuntimeError("Autoprueba OpenCL incompleta")
             self.cv2, self.np = cv2, np
+            crash_diagnostics.checkpoint("opencl:ready")
             self.backend = "OpenCL (OpenCV UMat)"
             self.detail = ("OpenCL habilitado; OpenCV puede elegir una "
                            "implementación CPU para alguna operación.")
