@@ -163,19 +163,70 @@ def subpixel_contours(mask,w,h,tolerance=.65,min_area=.5,
     return rings
 
 
-def trace_or_fallback(mask,w,h,mode):
-    """Specialized line-art tracing; conservative polygons if unsafe.
+def _box(ring):
+    xs=[p[0] for p in ring]
+    ys=[p[1] for p in ring]
+    return min(xs),min(ys),max(xs),max(ys)
 
-    Fast mode intentionally uses cheap polygons. Balance/high modes try
-    subpixel contours without importing OpenCV, Pillow or an external binary.
+
+def _match_score(a,b):
+    ax0,ay0,ax1,ay1=_box(a)
+    bx0,by0,bx1,by1=_box(b)
+    ix=max(0,min(ax1,bx1)-max(ax0,bx0))
+    iy=max(0,min(ay1,by1)-max(ay0,by0))
+    area_a=max(1e-4,(ax1-ax0)*(ay1-ay0))
+    area_b=max(1e-4,(bx1-bx0)*(by1-by0))
+    iou=ix*iy/(area_a+area_b-ix*iy)
+    # Reject rings with very different enclosed areas even if their bounding
+    # rectangles overlap (common in layered anime/line art drawings).
+    a_area=abs(core.polygon_area(a))
+    b_area=abs(core.polygon_area(b))
+    ratio=min(a_area,b_area)/max(a_area,b_area,1e-6)
+    return iou*ratio
+
+
+def trace_or_fallback(mask,w,h,mode):
+    """Specialized line-art tracing with a per-ring topology-safe fallback.
+
+    One disappearing 1px aperture should NOT turn every other 200 contours
+    back into pixel-corner polygons. Match smoothed loops against the original
+    closed rings and keep legacy geometry only for the unmatched details.
     """
+    original=core.cleaned_contours(mask,w,h,mode)
     if mode=="fast":
-        return core.cleaned_contours(mask,w,h,mode),"rápido"
+        return original,"rápido"
     tolerance=.85 if mode=="balanced" else .52
     try:
-        rings=subpixel_contours(mask,w,h,tolerance=tolerance)
-        if not rings:
+        traced=subpixel_contours(mask,w,h,tolerance=tolerance,
+                                 validate_topology=False)
+        if not traced:
             raise ValueError("No hay anillos")
-        return rings,"subpíxel"
+        available=set(range(len(traced)))
+        chosen=[]
+        replaced=0
+        for old in original:
+            old_sign=core.polygon_area(old)>0
+            candidate=None
+            best=.4
+            for index in available:
+                new=traced[index]
+                if (core.polygon_area(new)>0)!=old_sign:
+                    continue
+                score=_match_score(old,new)
+                if score>best:
+                    best=score
+                    candidate=index
+            if candidate is None:
+                chosen.append(old)
+            else:
+                chosen.append(traced[candidate])
+                available.remove(candidate)
+                replaced+=1
+        if replaced==len(original):
+            return chosen,"subpíxel"
+        if replaced:
+            return chosen,"subpíxel mixto (%d/%d)" % (
+                replaced,len(original))
+        return original,"respaldo poligonal"
     except (ValueError,IndexError,KeyError,ZeroDivisionError):
-        return core.cleaned_contours(mask,w,h,mode),"respaldo poligonal"
+        return original,"respaldo poligonal"
