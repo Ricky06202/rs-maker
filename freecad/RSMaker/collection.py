@@ -7,10 +7,22 @@ contains corresponding clearance sockets. Physical fit remains unvalidated.
 """
 
 FOOD_COLLECTION = "Comida"
-COLLECTIONS = ("Ninguna", FOOD_COLLECTION)
-FIGURES = ("Ninguna", "Hamburguesita")
-SCENES = ("Ninguno", "Restaurante")
+COLLECTIONS = ("Ninguna", FOOD_COLLECTION, "Espacio", "Playa")
+FIGURES = ("Ninguna", "Hamburguesita", "Astronauta", "Cangrejito")
+SCENES = ("Ninguno", "Restaurante", "Cohete", "Palmeras")
 EXPRESSIONS = ("Feliz", "Sorprendida")
+COLLECTION_OPTIONS = {
+    "Ninguna": (("Ninguna",), ("Ninguno",)),
+    "Comida": (("Ninguna", "Hamburguesita"), ("Ninguno", "Restaurante")),
+    "Espacio": (("Ninguna", "Astronauta"), ("Ninguno", "Cohete")),
+    "Playa": (("Ninguna", "Cangrejito"), ("Ninguno", "Palmeras")),
+}
+COLLECTION_DEFAULTS = {
+    "Ninguna": ("Ninguna", "Ninguno"),
+    "Comida": ("Hamburguesita", "Restaurante"),
+    "Espacio": ("Astronauta", "Cohete"),
+    "Playa": ("Cangrejito", "Palmeras"),
+}
 
 
 def restaurant_socket_centers(cfg):

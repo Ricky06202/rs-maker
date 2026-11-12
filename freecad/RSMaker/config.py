@@ -5,7 +5,8 @@ mechanism families remain future work; the four side stations in 0.2 share a
 wheel-gated sliding latch, and the lid has a separate quarter-turn cam.
 """
 from dataclasses import dataclass
-from .collection import COLLECTIONS, FIGURES, SCENES, EXPRESSIONS
+from .collection import (COLLECTIONS, FIGURES, SCENES, EXPRESSIONS,
+                         COLLECTION_OPTIONS)
 
 FACES = ("Frontal", "Derecha", "Trasera", "Izquierda", "Tapa")
 DIFFICULTIES = ("Fácil", "Medio", "Difícil")
@@ -73,10 +74,11 @@ class PuzzleConfig:
             raise ValueError("Figura o escenario desconocido.")
         if self.expression not in EXPRESSIONS or not 25 <= self.figure_height <= 40:
             raise ValueError("Expresión o altura de personaje inválida (25–40 mm).")
-        if self.collection == "Ninguna" and (self.figure != "Ninguna" or self.scene != "Ninguno"):
-            raise ValueError("Selecciona la colección Comida antes de crear figura o escenario.")
-        if self.collection == "Comida" and self.theme != "Ninguno":
-            raise ValueError("Con Comida usa motivo Ninguno: los relieves ya vienen en la colección.")
+        valid_figures,valid_scenes=COLLECTION_OPTIONS[self.collection]
+        if self.figure not in valid_figures or self.scene not in valid_scenes:
+            raise ValueError("El personaje o escenario no pertenece a la colección %s." % self.collection)
+        if self.collection != "Ninguna" and self.theme != "Ninguno":
+            raise ValueError("Las colecciones incluyen relieves: usa motivo Ninguno.")
         if self.theme not in THEMES:
             raise ValueError("Motivo decorativo desconocido.")
         if any(value not in DIFFICULTIES for value in self.difficulties):

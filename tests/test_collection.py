@@ -21,9 +21,24 @@ class CollectionConfigTests(unittest.TestCase):
         self.assertEqual(c.collection, "Comida")
         for bad in (dict(collection="Comida", figure="Hamburguesita", theme="Huellas"),
                     dict(figure="Hamburguesita"), dict(scene="Restaurante"),
-                    dict(collection="Espacio"), dict(figure_height=42)):
+                    dict(collection="Espacio",figure="Hamburguesita"),
+                    dict(collection="Playa",scene="Cohete"),
+                    dict(collection="Espacio",theme="Huellas"),
+                    dict(figure_height=42)):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 PuzzleConfig(**bad).validate()
+
+    def test_space_and_beach_have_exclusive_character_and_scene(self):
+        for collection,figure,scene in (
+                ("Espacio","Astronauta","Cohete"),
+                ("Playa","Cangrejito","Palmeras")):
+            with self.subTest(collection=collection):
+                cfg=PuzzleConfig(collection=collection,figure=figure,
+                                 scene=scene,theme="Ninguno").validate()
+                self.assertEqual(len(cfg.difficulties),5)
+                with self.assertRaisesRegex(ValueError,"no pertenece"):
+                    PuzzleConfig(collection=collection,figure="Hamburguesita",
+                                 scene=scene,theme="Ninguno").validate()
 
     def test_collection_does_not_change_five_challenges(self):
         a = PuzzleConfig()

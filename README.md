@@ -63,3 +63,13 @@ El test OCC requiere el paquete Python `cadquery`, empleado solo como kernel geo
 3. Diseñar retención física segura y, después, reducir mecanismos hasta alcanzar un formato coleccionable compacto.
 4. Reemplazar las cuatro estaciones laterales iguales por familias de puzzle distintas usando el mismo contrato de cerrojo.
 5. Implementar temas originales Espacio y Playa, accesorios para chibis, decoraciones importadas con permisos y una biblioteca editable.
+
+
+### Colecciones originales — Espacio y Playa
+
+El generador ahora permite seleccionar las colecciones **Comida**, **Espacio**
+y **Playa**. En cada caja mantiene cinco mecanismos (cuatro laterales y uno en
+la tapa), el chibi original dentro y la decoración mayor sobre la tapa:
+Hamburguesita/Restaurante, Astronauta/Cohete y Cangrejito/Palmeras.
+Las combinaciones incompatibles quedan bloqueadas. Este código sigue siendo
+un **prototipo CAD** que requiere validación en FreeCAD e impresión real.

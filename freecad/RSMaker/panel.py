@@ -2,7 +2,8 @@
 import os
 from dataclasses import replace
 from .config import PuzzleConfig, PUZZLES, DIFFICULTIES, FACES, THEMES, DIAL_MARKS
-from .collection import COLLECTIONS, FIGURES, SCENES, EXPRESSIONS
+from .collection import (COLLECTIONS, FIGURES, SCENES, EXPRESSIONS,
+                         COLLECTION_OPTIONS, COLLECTION_DEFAULTS)
 from .project import create_project, regenerate_project, config_from_project
 try:
     from PySide import QtWidgets
@@ -108,9 +109,10 @@ class PuzzleDialog(QtWidgets.QDialog):
         cform.addRow("Expresión grabada",self.expression)
         cform.addRow("Altura del muñeco",self.figure_height)
         cform.addRow("Decoración grande de tapa",self.scene)
-        tip=QtWidgets.QLabel("Comida añade relieves a las cuatro caras, "
-            "una hamburguesita de una sola pieza y/o un restaurante con dos "
-            "pivotes de montaje sobre la tapa. No sustituye el puzzle superior.")
+        tip=QtWidgets.QLabel(
+            "Comida, Espacio y Playa incluyen relieves en las cuatro caras, "
+            "un personaje original dentro y una escena grande en la tapa, "
+            "sin sustituir el quinto puzzle superior.")
         tip.setWordWrap(True)
         cform.addRow(tip)
         body.addWidget(creative)
@@ -167,27 +169,38 @@ class PuzzleDialog(QtWidgets.QDialog):
         if ti >= 0:self.theme.setCurrentIndex(ti)
         self.sync_collection()
 
-    def sync_collection(self):
-        food=self.collection.currentData()=="Comida"
-        self.figure.setEnabled(food)
-        self.scene.setEnabled(food)
-        self.expression.setEnabled(food and self.figure.currentData()!="Ninguna")
-        self.figure_height.setEnabled(food and self.figure.currentData()!="Ninguna")
-        self.theme.setEnabled(not food)
+    @staticmethod
+    def _allowed_items(combo, values, preferred):
+        old=combo.blockSignals(True)
+        try:
+            combo.clear()
+            for value in values:
+                combo.addItem(value,value)
+            index=combo.findData(preferred)
+            combo.setCurrentIndex(index if index>=0 else 0)
+        finally:
+            combo.blockSignals(old)
+
+    def sync_collection(self, choose_defaults=False):
+        collection=self.collection.currentData()
+        allowed_figures,allowed_scenes=COLLECTION_OPTIONS[collection]
+        defaults=COLLECTION_DEFAULTS[collection]
+        desired_figure=(defaults[0] if choose_defaults else self.figure.currentData())
+        desired_scene=(defaults[1] if choose_defaults else self.scene.currentData())
+        self._allowed_items(self.figure,allowed_figures,desired_figure)
+        self._allowed_items(self.scene,allowed_scenes,desired_scene)
+        active=collection!="Ninguna"
+        figure_active=active and self.figure.currentData()!="Ninguna"
+        self.figure.setEnabled(active)
+        self.scene.setEnabled(active)
+        self.expression.setEnabled(figure_active)
+        self.figure_height.setEnabled(figure_active)
+        self.theme.setEnabled(not active)
 
     def on_collection_changed(self,*args):
-        food=self.collection.currentData()=="Comida"
-        if food:
+        if self.collection.currentData()!="Ninguna":
             self.theme.setCurrentIndex(self.theme.findData("Ninguno"))
-            # First selection of a collection should show what it can make.
-            if self.figure.currentData()=="Ninguna":
-                self.figure.setCurrentIndex(self.figure.findData("Hamburguesita"))
-            if self.scene.currentData()=="Ninguno":
-                self.scene.setCurrentIndex(self.scene.findData("Restaurante"))
-        else:
-            self.figure.setCurrentIndex(self.figure.findData("Ninguna"))
-            self.scene.setCurrentIndex(self.scene.findData("Ninguno"))
-        self.sync_collection()
+        self.sync_collection(choose_defaults=True)
         self.update_preview()
 
     def make_config(self):
@@ -196,9 +209,9 @@ class PuzzleDialog(QtWidgets.QDialog):
         args["theme"]=self.theme.currentData()
         args.update({key:getattr(self,key).currentData()
                      for key in ("collection","expression")})
-        food=args["collection"]=="Comida"
-        args["figure"]=self.figure.currentData() if food else "Ninguna"
-        args["scene"]=self.scene.currentData() if food else "Ninguno"
+        active=args["collection"]!="Ninguna"
+        args["figure"]=self.figure.currentData() if active else "Ninguna"
+        args["scene"]=self.scene.currentData() if active else "Ninguno"
         args["figure_height"]=self.figure_height.value()
         return PuzzleConfig(**args).validate()
 
@@ -207,9 +220,9 @@ class PuzzleDialog(QtWidgets.QDialog):
             cfg=self.make_config()
             x,y,z=cfg.prize_interior
             self.sync_collection()
-            art = (" · Figura: %s (%.1f mm) · Escena: %s" %
-                   (cfg.figure,cfg.figure_height,cfg.scene) if cfg.collection=="Comida"
-                   else " · Sin colección")
+            art = (" · Colección %s · Figura: %s (%.1f mm) · Escena: %s" %
+                   (cfg.collection,cfg.figure,cfg.figure_height,cfg.scene)
+                   if cfg.collection!="Ninguna" else " · Sin colección")
             self.preview.setText("5/5 caras activas · Espacio conservador del premio: "
                                  "%.1f × %.1f × %.1f mm.\n"
                                  "4 seguros laterales + 1 de tapa. "

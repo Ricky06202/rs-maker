@@ -14,6 +14,9 @@ from .config import (PuzzleConfig, FACES, DIAL_MARKS, ARM_HEIGHT,
                      THEMES, RELEASE_TRAVEL)
 from .collection import (make_restaurant, make_hamburger, make_side_emboss,
                          restaurant_lid_sockets)
+from .themed_collections import (make_space_scene, make_beach_scene,
+                                 make_astro_chibi, make_crab_chibi,
+                                 make_themed_side_emboss)
 
 SIDE_COLORS = ((0.96,0.61,0.25),(0.37,0.69,0.82),
                (0.75,0.59,0.86),(0.53,0.78,0.57))
@@ -182,6 +185,30 @@ def build_shapes(cfg):
             parts.append(("Chibi_Hamburguesita",
                           make_hamburger(cfg, Part, V),
                           (.96,.72,.39)))
+    elif cfg.collection in ("Espacio","Playa"):
+        for face in FACES[:4]:
+            L = W if face in ("Frontal","Trasera") else D
+            base = base.fuse(
+                make_themed_side_emboss(cfg,face,L,Part,V,_to_global))
+        lid_top=body_h+g+lid_t
+        if cfg.scene!="Ninguno":
+            for tool in restaurant_lid_sockets(cfg,Part,V,lid_top):
+                lid=lid.cut(tool)
+            if cfg.collection=="Espacio":
+                parts.append(("Escenario_Cohete",
+                              make_space_scene(cfg,Part,V,lid_top),
+                              (.74,.86,.98)))
+            else:
+                parts.append(("Escenario_Palmeras",
+                              make_beach_scene(cfg,Part,V,lid_top),
+                              (.45,.81,.64)))
+        if cfg.figure!="Ninguna":
+            if cfg.collection=="Espacio":
+                parts.append(("Chibi_Astronauta",
+                              make_astro_chibi(cfg,Part,V),(.90,.92,.96)))
+            else:
+                parts.append(("Chibi_Cangrejito",
+                              make_crab_chibi(cfg,Part,V),(.94,.57,.41)))
 
     main = [("Base",base.removeSplitter(),(.35,.59,.80)),
             ("Tapa",lid.removeSplitter(),(.87,.92,.97))]
