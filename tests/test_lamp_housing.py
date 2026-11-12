@@ -75,7 +75,7 @@ class LampAssemblyTests(unittest.TestCase):
                                       "Part":fake_part}):
             lamp=importlib.import_module("freecad.RSMaker.lamp_stencil")
             with patch.object(lamp,"_to_part",
-                              side_effect=lambda mask,w,h,scale,label,paths:
+                              side_effect=lambda mask,w,h,scale,label,paths,splines=None:
                                   FakePlanar(label)):
                 parts=lamp.make_lamp(cfg,b"",".jpg",mask_meta=fake_meta)
         self.assertEqual(len(parts),2)
