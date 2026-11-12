@@ -119,3 +119,39 @@ subpíxel, casos de agujeros microscópicos que requieren respaldo local,
 placas tocando los límites de imagen y unión figura–placa en el trabajador.
 Continúa pendiente validar la geometría con OpenCascade en el FreeCAD del
 usuario y confirmar la resistencia de los puentes antes de imprimir.
+
+## Detección automática de siluetas negras (gatos, logos, iconos)
+
+No todas las ilustraciones monocromas representan los cortes del mismo modo:
+
+- **Ilustración de líneas** (como un manga): la silueta exterior constituye
+  el frontal y las líneas negras interiores pueden convertirse en huecos.
+- **Silueta negra rellena** (como un gato o un logotipo): el negro representa
+  el material sólido y son las **zonas blancas interiores** las que se calan
+  (ojos, orejas, lazos, detalles de luz). Los centros negros de los ojos se
+  conservan y reciben puentes estructurales cuando hacen falta.
+
+NameForge detecta automáticamente estas categorías calculando la densidad de
+negro dentro de la silueta cerrada (límite inicial 62 %). También elimina
+perforaciones microscópicas por debajo de unas 0.18 mm² antes de generar los
+wires CAD, evitando geometría no imprimible y sobrecarga del kernel. El
+procesamiento de máscaras permanece en el QThread; OpenCascade genera las
+extrusiones y las operaciones booleanas después.
+
+Esto corrige una interpretación incorrecta: con un gato negro, el modo
+anterior perforaba casi todo el cuerpo oscuro, dejaba múltiples islas
+desconectadas y podía exigir demasiados puentes o crear sólidos inválidos.
+En el nuevo modo, la silueta oscura sigue siendo material.
+
+En la consola Python se registran `Tipo de imagen: silhouette` o
+`Tipo de imagen: lineart`, cobertura oscura y recortes diminutos descartados.
+Es una clasificación heurística: una imagen compleja con negros y blancos muy
+entremezclados puede necesitar revisión o una futura selección manual.
+
+**Validación:** las pruebas automáticas comprueban ambas clases, ojos blancos
+con pupilas negras, puentes, microrecortes y unidad del frontal/reverso.
+Se analizó localmente una copia del JPG de gato de 621×772 px aportado para
+el diagnóstico. Queda pendiente comprobar su generación completa en la versión
+de FreeCAD del usuario. Un cierre nativo de FreeCAD puede deberse también a
+OpenCascade o a controladores, y no debe darse por solucionado hasta la prueba
+real.
