@@ -82,3 +82,40 @@ Las curvas se calculan parcialmente en el QThread: la preparación y división d
 El antiguo proceso creaba la tapa posterior y el marco como geometrías independientes y después intentaba unirlos con una operación booleana `rear.fuse(frame)`. Al suavizar ambos contornos por separado podían aparecer pequeñas discrepancias que provocaban una carcasa inválida o más de un sólido. Ahora se extruye **una única silueta exterior** hasta la parte superior de la carcasa; se corta una **cavidad interior desplazada 3 mm hacia adentro** dejando un fondo de 2 mm y los laterales unidos de forma inherente. Se agrega el orificio del cable al mismo cuerpo. No se fusionan una tapa y un marco sueltos.
 
 Si un recorte a partir de B-splines produce una geometría inválida, el sistema rehace **la carcasa completa** utilizando contornos conservadores y comprueba de nuevo que el resultado es exactamente un sólido FreeCAD válido. Sigue generando dos objetos: frontal calado y carcasa monolítica. La prueba en una instalación FreeCAD y en laminador sigue pendiente.
+
+## Vectorización especializada para ilustraciones (noviembre de 2026)
+
+**Balanceado y Alta** ejecutan una vectorización de contornos subpíxel de la
+ilustración calada: aplica un filtro binomial 3×3 y traza las fronteras mediante
+*Marching Squares*, calculando vértices **fraccionarios** en vez de recorrer
+los cuadrados de los píxeles. Después aproxima tramos como curvas B-spline de
+FreeCAD, conservando puntas relevantes, centros de letras y puentes imprimibles.
+El modo Rápido mantiene el vectorizador poligonal ligero.
+
+Esta etapa genera **trayectorias geométricas CAD**, no exporta automáticamente
+un archivo SVG. Tanto un JPG como un SVG de origen se procesan antes de
+construir el modelo. El dibujo puede conservar texturas o trazos rugosos que
+ya existan en la imagen; convertirlo a vectores no recupera información
+desconocida.
+
+**Respaldo por contorno:** la vectorización verifica anillos exteriores y
+perforaciones contra la máscara inicial. Si desaparece un microhueco de 1 píxel,
+solo ese anillo conserva el trazo poligonal; el resto mantiene contornos
+subpíxel. Si una B-spline es inválida, el generador conserva un contorno
+seguro. En la consola de FreeCAD aparece el diagnóstico
+`Vectorización: frontal subpíxel, carcasa subpíxel, cavidad ...` o
+`subpíxel mixto` / `respaldo poligonal`.
+
+**Corrección del fondo y la unión:** la parte trasera ya no se deduce de
+`fill_holes(front)`, porque los puentes de material del frontal podían
+cerrar huecos exteriores y crear triángulos sólidos que no existían en la
+silueta. Se construye desde la silueta exterior de la figura y la placa del
+nombre, forzando un **solape de al menos 5 mm**. La carcasa monolítica mantiene
+paredes y fondo unidos mediante extrusión de una única forma y recorte de la
+cavidad LED; no se añade una tapa separada.
+
+**Verificación:** pruebas automatizadas cubren agujeros reales, contornos
+subpíxel, casos de agujeros microscópicos que requieren respaldo local,
+placas tocando los límites de imagen y unión figura–placa en el trabajador.
+Continúa pendiente validar la geometría con OpenCascade en el FreeCAD del
+usuario y confirmar la resistencia de los puentes antes de imprimir.
