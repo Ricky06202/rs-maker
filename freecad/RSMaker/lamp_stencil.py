@@ -199,8 +199,13 @@ def build_masks(cfg,prepared,progress=None):
     """
     from time import perf_counter
     from .gpu_accel import ImageAccelerator, cpu_morph
+    from . import crash_diagnostics
     started=perf_counter()
-    accelerator=ImageAccelerator(getattr(cfg, "compute_backend", "auto"))
+    preference=getattr(cfg,"compute_backend","auto")
+    if os.environ.get("RSM_NAMEFORGE_SAFE_MODE")=="1":
+        preference="cpu"
+    crash_diagnostics.checkpoint("worker:accelerator",backend=preference)
+    accelerator=ImageAccelerator(preference)
     timings={}
     scale=prepared["scale"]
     w,h=prepared["w"],prepared["h"]
@@ -316,6 +321,7 @@ def build_masks(cfg,prepared,progress=None):
     timings["mask_and_bridges_s"]=round(perf_counter()-started-
                                         timings["silhouette_s"],3)
     if progress:progress(82,"Vectorizando contornos a precisión subpíxel")
+    crash_diagnostics.checkpoint("worker:vector-tracing")
     from .vector_trace import trace_or_fallback
     mode=getattr(cfg,"quality_mode","balanced")
     front_paths,front_trace=trace_or_fallback(connected,w,h,mode)
@@ -345,6 +351,10 @@ def build_masks(cfg,prepared,progress=None):
     timings.update(accelerator.timings)
     if progress:
         progress(85,"Trazado %s · %s" % (front_trace,accelerator.backend))
+    crash_diagnostics.checkpoint("worker:vector-complete",
+                                front_rings=len(front_paths),
+                                rear_rings=len(rear_paths),
+                                cavity_rings=len(cavity_paths))
     return dict(pixels=(w,h),bridges=bridges+frame_bridges,
                 removed_islands=removed,front_mask=connected,
                 frame_mask=frame,rear_mask=rear_mask,cavity_mask=cavity,
@@ -433,6 +443,7 @@ def _to_part(mask,w,h,pixels_per_mm,label,paths=None,splines=None):
     """
     import FreeCAD as App
     import Part
+    from . import crash_diagnostics
     errors=[]
     candidates=[]
     if paths is not None and splines is not None:
@@ -441,6 +452,8 @@ def _to_part(mask,w,h,pixels_per_mm,label,paths=None,splines=None):
         candidates.append(("polígono preparado",paths,None))
     candidates.extend((str(t),None,None) for t in (.85,.25,0.0))
     for attempt,rings,plans in candidates:
+        crash_diagnostics.checkpoint("cad:face-attempt",
+                                     name=label,method=attempt)
         try:
             if rings is None:
                 rings=core.contours(mask,w,h,tolerance=float(attempt),
@@ -474,9 +487,13 @@ def _to_part(mask,w,h,pixels_per_mm,label,paths=None,splines=None):
                 wires.append(wire)
             if not wires:
                 raise ValueError("No hay contornos imprimibles")
+            crash_diagnostics.checkpoint("cad:part-makeface",
+                                         name=label,wires=len(wires),
+                                         method=attempt)
             face=Part.makeFace(wires,"Part::FaceMakerBullseye")
             if face.isNull() or not face.Faces or not face.isValid():
                 raise ValueError("No se pudo cerrar la cara con huecos")
+            crash_diagnostics.checkpoint("cad:face-valid",name=label)
             if plans is not None or splines is not None:
                 # Allows diagnosing a rejected smooth contour without
                 # exposing the user to a failed build.
@@ -505,6 +522,7 @@ def _closed_back_housing(meta,w,h,scale,cfg,front_thickness=2.0,
     """
     import FreeCAD as App
     import Part
+    from . import crash_diagnostics
     height=cfg.depth-front_thickness
     cavity_depth=height-rear_thickness
     if cavity_depth<4.0:
@@ -528,17 +546,21 @@ def _closed_back_housing(meta,w,h,scale,cfg,front_thickness=2.0,
                 cavity_mask,w,h,scale,"cavidad interior",
                 meta.get("cavity_paths") if smooth else None,
                 meta.get("cavity_splines") if smooth else None)
+            crash_diagnostics.checkpoint("cad:housing-extrude")
             outer_solid=rear_face.extrude(App.Vector(0,0,height))
             # Extend the tool beyond the top to make a clean, open cavity.
             tool=inset_face.extrude(App.Vector(0,0,cavity_depth+1.0))
             tool.translate(App.Vector(0,0,rear_thickness))
+            crash_diagnostics.checkpoint("cad:housing-cut-cavity")
             housing=outer_solid.cut(tool)
+            crash_diagnostics.checkpoint("cad:housing-cut-complete")
             bounds=housing.BoundBox
             port=Part.makeCylinder(
                 2.5,rear_thickness+1.0,
                 App.Vector(
                     (bounds.XMin+bounds.XMax)/2.0,
                     bounds.YMin+8.0,-0.5))
+            crash_diagnostics.checkpoint("cad:housing-cut-cable")
             housing=housing.cut(port)
             try:
                 housing=housing.removeSplitter()
@@ -548,6 +570,7 @@ def _closed_back_housing(meta,w,h,scale,cfg,front_thickness=2.0,
                 raise ValueError(
                     "El resultado tiene %d sólidos; la cavidad no es "
                     "válida." % len(housing.Solids))
+            crash_diagnostics.checkpoint("cad:housing-valid")
             if progress:
                 progress(96,"Carcasa integrada · "+(
                     "curvas CAD" if smooth else "contornos seguros"))
