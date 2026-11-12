@@ -323,14 +323,41 @@ def build_masks(cfg,prepared,progress=None):
     if progress:progress(82,"Vectorizando contornos a precisión subpíxel")
     crash_diagnostics.checkpoint("worker:vector-tracing")
     from .vector_trace import trace_or_fallback
+    from . import vtracer_adapter
     mode=getattr(cfg,"quality_mode","balanced")
-    front_paths,front_trace=trace_or_fallback(connected,w,h,mode)
-    rear_paths,rear_trace=trace_or_fallback(rear_mask,w,h,mode)
-    cavity_paths,cavity_trace=trace_or_fallback(cavity,w,h,mode)
+    backend=getattr(cfg,"vector_backend","auto")
+    if os.environ.get("RSM_NAMEFORGE_SAFE_MODE")=="1":
+        backend="builtin"
+    vector_errors={}
+    # VTracer can be unavailable inside NixOS Flatpak even when installed
+    # on the host. Only attempt its isolated helper once after a failure.
+    external_failed=False
+
+    def vectorize(mask,name):
+        nonlocal external_failed
+        if backend!="builtin" and mode!="fast" and not external_failed:
+            crash_diagnostics.checkpoint("worker:vtracer-start",part=name)
+            try:
+                traced,replaced,total=vtracer_adapter.trace(mask,w,h,mode)
+                crash_diagnostics.checkpoint("worker:vtracer-ok",
+                                             part=name,rings=replaced)
+                return traced,("VTracer %d/%d"%(replaced,total))
+            except Exception as exc:
+                external_failed=True
+                vector_errors[name]="%s: %s"%(type(exc).__name__,str(exc)[:180])
+                crash_diagnostics.checkpoint("worker:vtracer-fallback",
+                                             part=name,error=type(exc).__name__)
+        return trace_or_fallback(mask,w,h,mode)
+
+    front_paths,front_trace=vectorize(connected,"front")
+    rear_paths,rear_trace=vectorize(rear_mask,"rear")
+    cavity_paths,cavity_trace=vectorize(cavity,"cavity")
     paths={
         "front_paths": front_paths,
         "rear_paths": rear_paths,
         "cavity_paths": cavity_paths,
+        "vector_backend_requested": backend,
+        "vector_fallbacks": vector_errors,
         "trace_methods": {
             "front": front_trace,
             "rear": rear_trace,
