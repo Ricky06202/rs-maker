@@ -200,6 +200,58 @@ def path_rings(path):
     return loops
 
 
+def _matmul(a,b):
+    """SVG affine 2D transforms: a after b (nested groups supported)."""
+    return (a[0]*b[0]+a[2]*b[1],
+            a[1]*b[0]+a[3]*b[1],
+            a[0]*b[2]+a[2]*b[3],
+            a[1]*b[2]+a[3]*b[3],
+            a[0]*b[4]+a[2]*b[5]+a[4],
+            a[1]*b[4]+a[3]*b[5]+a[5])
+
+
+def _parse_transform(source):
+    """Handle standard safe SVG group transforms emitted by VTracer 0.6."""
+    identity=(1.,0.,0.,1.,0.,0.)
+    if not source:
+        return identity
+    pattern=re.compile(r"([A-Za-z]+)\s*\(([^)]*)\)")
+    rest=source
+    result=identity
+    for match in pattern.finditer(source):
+        before=rest.split(match.group(0),1)[0]
+        if before.strip(" ,\n\t"):
+            raise ValueError("Transformación SVG inválida")
+        rest=rest.split(match.group(0),1)[1]
+        kind=match.group(1).lower()
+        numbers=[float(x) for x in re.findall(
+            r"[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?",match.group(2))]
+        if not all(math.isfinite(x) for x in numbers):
+            raise ValueError("Transformación SVG fuera de rango")
+        if kind=="translate" and len(numbers) in (1,2):
+            op=(1.,0.,0.,1.,numbers[0],numbers[1] if len(numbers)==2 else 0.)
+        elif kind=="scale" and len(numbers) in (1,2):
+            op=(numbers[0],0.,0.,
+                numbers[1] if len(numbers)==2 else numbers[0],0.,0.)
+        elif kind=="matrix" and len(numbers)==6:
+            op=tuple(numbers)
+        elif kind=="rotate" and len(numbers) in (1,3):
+            angle=math.radians(numbers[0])
+            cs,sn=math.cos(angle),math.sin(angle)
+            turn=(cs,sn,-sn,cs,0.,0.)
+            if len(numbers)==3:
+                cx,cy=numbers[1],numbers[2]
+                turn=_matmul((1.,0.,0.,1.,cx,cy),
+                             _matmul(turn,(1.,0.,0.,1.,-cx,-cy)))
+            op=turn
+        else:
+            raise ValueError("Tipo de transformación SVG no permitido")
+        result=_matmul(result,op)
+    if rest.strip(" ,\n\t"):
+        raise ValueError("Transformación SVG desconocida")
+    return result
+
+
 def svg_rings(svg,mask,w,h):
     if len(svg)>MAX_SVG or "<!DOCTYPE" in svg.upper() or "<!ENTITY" in svg.upper():
         raise ValueError("SVG inseguro o excesivo")
@@ -209,7 +261,7 @@ def svg_rings(svg,mask,w,h):
     vb=root.attrib.get("viewBox")
     if vb:
         view=[float(x) for x in re.split(r"[,\s]+",vb.strip())]
-        if len(view)!=4 or view[2]<=0 or view[3]<=0:
+        if len(view)!=4 or not all(math.isfinite(x) for x in view) or view[2]<=0 or view[3]<=0:
             raise ValueError("viewBox SVG incorrecto")
         x0,y0,sw,sh=view
         if abs(sw-w)>max(1,w*.08) or abs(sh-h)>max(1,h*.08):
@@ -217,25 +269,31 @@ def svg_rings(svg,mask,w,h):
     else:
         x0=y0=0.;sw=float(w);sh=float(h)
     rings=[]
-    count=0
-    for node in root.iter():
-        if "transform" in node.attrib:
-            raise ValueError("Transformaciones SVG no soportadas")
-        if node.tag.split("}")[-1]!="path":
-            continue
-        count+=1
-        if count>12_000:
-            raise ValueError("Demasiados trazos SVG")
-        fill=node.attrib.get("fill","").strip().lower()
+    visited=[0]
+    identity=(1.,0.,0.,1.,0.,0.)
+
+    def visit(node,parent_matrix,parent_fill=""):
+        matrix=_matmul(parent_matrix,_parse_transform(node.attrib.get("transform","")))
+        fill=node.attrib.get("fill",parent_fill).strip().lower()
         style=node.attrib.get("style","").replace(" ","").lower()
         if "fill:" in style:
             fill=style.split("fill:",1)[1].split(";",1)[0]
-        if fill in ("none","white","#fff","#ffffff","rgb(255,255,255)"):
-            continue
-        for ring in path_rings(node.attrib.get("d","")):
-            converted=[((x-x0)*w/sw,(y-y0)*h/sh) for x,y in ring]
-            if abs(core.polygon_area(converted))>=.5:
-                rings.append(_orient_material_right(converted,mask,w,h))
+        if node.tag.split("}")[-1]=="path":
+            visited[0]+=1
+            if visited[0]>12_000:
+                raise ValueError("Demasiados trazos SVG")
+            if fill not in ("none","white","#fff","#ffffff","rgb(255,255,255)"):
+                for ring in path_rings(node.attrib.get("d","")):
+                    converted=[]
+                    for x,y in ring:
+                        gx=matrix[0]*x+matrix[2]*y+matrix[4]
+                        gy=matrix[1]*x+matrix[3]*y+matrix[5]
+                        converted.append(((gx-x0)*w/sw,(gy-y0)*h/sh))
+                    if abs(core.polygon_area(converted))>=.5:
+                        rings.append(_orient_material_right(converted,mask,w,h))
+        for child in node:
+            visit(child,matrix,fill)
+    visit(root,identity)
     if not rings:
         raise ValueError("VTracer no produjo contornos válidos")
     return rings
