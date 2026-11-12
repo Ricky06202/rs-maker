@@ -73,6 +73,39 @@ class LineArtVectorizationTests(unittest.TestCase):
         _,method=tracer.trace_or_fallback(mask,w,h,"fast")
         self.assertEqual(method,"rápido")
 
+    def test_background_worker_joins_art_and_plate_before_vectorizing(self):
+        # Exercise the actual worker mask pipeline, without Qt rendering.
+        import importlib
+        import sys
+        import types
+        from unittest.mock import patch
+        dummy=types.ModuleType("PySide2")
+        dummy.QtCore=types.SimpleNamespace()
+        dummy.QtGui=types.SimpleNamespace()
+        dummy.QtSvg=types.SimpleNamespace()
+        with patch.dict(sys.modules,{"PySide2":dummy}):
+            lamp=importlib.import_module("freecad.RSMaker.lamp_stencil")
+        w,h=78,120
+        aw,ah=68,62
+        envelope=bytearray(aw*ah)
+        rect(envelope,aw,28,3,45,57)
+        ink=bytearray(envelope)
+        prepared=dict(scale=1,w=w,h=h,margin=5,top_of_band=88,
+                      art_w=aw,art_h=ah,cached=(bytes(ink),bytes(envelope)),
+                      text_w=68,text_h=20,letters=bytearray(68*20))
+        cfg=types.SimpleNamespace(bridge_width=1.6,
+                                  quality_mode="fast",compute_backend="cpu")
+        meta=lamp.build_masks(cfg,prepared)
+        rear=meta["rear_mask"]
+        self.assertEqual(len(core.connected_components(rear,w,h)),1)
+        self.assertEqual(rear[70*w+8],0,
+                         "No rellenar un triángulo exterior falso.")
+        self.assertEqual(rear[90*w+8],1,
+                         "La placa debe estar completamente llena.")
+        self.assertEqual(rear[85*w+38],1,
+                         "La figura debe solaparse con la placa.")
+        self.assertEqual(meta["trace_methods"]["rear"],"rápido")
+
     def test_rear_is_not_inferred_from_front_bridges(self):
         # Artwork + plaque: a diagonal cut-out region must not be covered
         # merely because an unrelated front-only stroke surrounds it.
