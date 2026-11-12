@@ -75,3 +75,10 @@ En modo **Balanceado** y **Alta calidad**, los contornos de la ilustración, las
 Si la B-spline invade una perforación o FreeCAD la rechaza, el generador **reintenta automáticamente** con polígonos ya suavizados y después con los contornos conservadores originales. La validación comprueba wires cerrados y caras válidas antes de extruir; el frente conserva sus puentes y la carcasa posterior permanece un único sólido con el marco unido.
 
 Las curvas se calculan parcialmente en el QThread: la preparación y división de tramos se hace fuera de la GUI; **la creación de curvas FreeCAD y las booleanas CAD siguen en el hilo principal**, por seguridad. Un diseño extremadamente complejo puede hacer lenta esa fase. Las pruebas Python no sustituyen la validación visual de FreeCAD ni una impresión física.
+
+
+## Corrección — carcasa como un solo sólido desde el principio
+
+El antiguo proceso creaba la tapa posterior y el marco como geometrías independientes y después intentaba unirlos con una operación booleana `rear.fuse(frame)`. Al suavizar ambos contornos por separado podían aparecer pequeñas discrepancias que provocaban una carcasa inválida o más de un sólido. Ahora se extruye **una única silueta exterior** hasta la parte superior de la carcasa; se corta una **cavidad interior desplazada 3 mm hacia adentro** dejando un fondo de 2 mm y los laterales unidos de forma inherente. Se agrega el orificio del cable al mismo cuerpo. No se fusionan una tapa y un marco sueltos.
+
+Si un recorte a partir de B-splines produce una geometría inválida, el sistema rehace **la carcasa completa** utilizando contornos conservadores y comprueba de nuevo que el resultado es exactamente un sólido FreeCAD válido. Sigue generando dos objetos: frontal calado y carcasa monolítica. La prueba en una instalación FreeCAD y en laminador sigue pendiente.

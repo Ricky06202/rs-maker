@@ -267,18 +267,31 @@ def build_masks(cfg,prepared,progress=None):
         min_island=max(2,round(.2*scale*scale)))
     if progress:progress(79,"Reparando contornos")
     connected,front_diagonals=core.repair_diagonal_contacts(connected,w,h)
-    inner=accelerator.morph(
-        canvas,w,h,max(1,round(3.0*scale)),"erode",cpu_morph)
-    frame=bytearray(
-        1 if canvas[i] and not inner[i] else 0
-        for i in range(w*h))
-    frame,frame_bridges,_=core.connect_islands(
-        frame,canvas,w,h,max(1,round(scale)),min_island=2)
-    frame,frame_diagonals=core.repair_diagonal_contacts(frame,w,h)
     rear_mask=core.fill_holes(connected,w,h)
     rear_mask,_=core.repair_diagonal_contacts(rear_mask,w,h)
     if len(core.connected_components(rear_mask,w,h))!=1:
         raise ValueError("La tapa trasera no conserva una silueta conectada.")
+    # The cavity is offset *inside the very same rear silhouette*. It no
+    # longer depends on a separately sampled exterior frame boundary. One
+    # outer solid minus this inset cavity is always the same physical shell.
+    cavity=accelerator.morph(
+        rear_mask,w,h,max(1,round(3.0*scale)),"erode",cpu_morph)
+    # Remove microscopic closed pockets before asking OCC to cut them out.
+    min_cavity=max(2,int(3.0*scale*scale))
+    cavity_clean=bytearray(w*h)
+    for region in core.connected_components(cavity,w,h,min_area=min_cavity):
+        for pixel in region:
+            cavity_clean[pixel]=1
+    cavity=cavity_clean
+    if not any(cavity):
+        raise ValueError(
+            "La silueta es demasiado estrecha para una cavidad LED de 3 mm. "
+            "Aumenta el tamaño de la lámpara.")
+    frame=bytearray(
+        1 if rear_mask[i] and not cavity[i] else 0
+        for i in range(w*h))
+    frame_bridges=0
+    frame_diagonals=0
     timings["mask_and_bridges_s"]=round(perf_counter()-started-
                                         timings["silhouette_s"],3)
     if progress:progress(82,"Suavizando contornos fuera de la interfaz")
@@ -287,6 +300,7 @@ def build_masks(cfg,prepared,progress=None):
         "front_paths": core.cleaned_contours(connected,w,h,mode),
         "frame_paths": core.cleaned_contours(frame,w,h,mode),
         "rear_paths": core.cleaned_contours(rear_mask,w,h,mode),
+        "cavity_paths": core.cleaned_contours(cavity,w,h,mode),
     }
     if mode!="fast":
         from .curve_fit import spline_spans
@@ -294,6 +308,7 @@ def build_masks(cfg,prepared,progress=None):
             "front_splines": [spline_spans(r) for r in paths["front_paths"]],
             "frame_splines": [spline_spans(r) for r in paths["frame_paths"]],
             "rear_splines": [spline_spans(r) for r in paths["rear_paths"]],
+            "cavity_splines": [spline_spans(r) for r in paths["cavity_paths"]],
         })
     timings["total_preparation_s"]=round(perf_counter()-started,3)
     timings["contours_s"]=round(timings["total_preparation_s"]-
@@ -303,7 +318,8 @@ def build_masks(cfg,prepared,progress=None):
     if progress:progress(85,"Contornos preparados · "+accelerator.backend)
     return dict(pixels=(w,h),bridges=bridges+frame_bridges,
                 removed_islands=removed,front_mask=connected,
-                frame_mask=frame,rear_mask=rear_mask,scale=scale,
+                frame_mask=frame,rear_mask=rear_mask,cavity_mask=cavity,
+                scale=scale,
                 diagonal_repairs=front_diagonals+frame_diagonals,
                 acceleration=dict(backend=accelerator.backend,
                                   detail=accelerator.detail,
@@ -407,70 +423,102 @@ def _to_part(mask,w,h,pixels_per_mm,label,paths=None,splines=None):
         "diseño. Detalle de tolerancias: %s"%(label,"; ".join(errors)))
 
 
-def make_lamp(cfg,source,extension,progress=None,mask_meta=None):
-    """Generate two printable solids: cut-out front and closed-back housing.
+def _closed_back_housing(meta,w,h,scale,cfg,front_thickness=2.0,
+                         rear_thickness=2.0,progress=None):
+    """One watertight body, milled open from one outer extrusion.
 
-    The rear cover and the perimeter frame share a contact surface and are
-    fused into a single watertight housing. The separate front can be mounted
-    after fitting the lighting components.
+    The previous rear.fuse(frame) could return two solids because the two
+    masks had separately smoothed boundaries. The new housing can never
+    lose contact between the rear and the frame: both originate from the
+    exact same outer solid. A 3-mm inward inset cuts the LED cavity down
+    to the 2-mm solid back, leaving the top open for the removable front.
     """
     import FreeCAD as App
     import Part
+    height=cfg.depth-front_thickness
+    cavity_depth=height-rear_thickness
+    if cavity_depth<4.0:
+        raise ValueError("La lámpara necesita espacio para LED y fondo.")
+    failures=[]
+    for smooth in (True,False):
+        try:
+            rear_face=_to_part(
+                meta["rear_mask"],w,h,scale,"perímetro de carcasa",
+                meta.get("rear_paths") if smooth else None,
+                meta.get("rear_splines") if smooth else None)
+            cavity_mask=meta.get("cavity_mask")
+            if cavity_mask is None:
+                # Compatibility when editing projects generated before this
+                # mask was included in the worker's output.
+                cavity_mask=core.morph(meta["rear_mask"],w,h,
+                                      max(1,round(3.0*scale)),"erode")
+            if not any(cavity_mask):
+                raise ValueError("No quedó cavidad para los LED.")
+            inset_face=_to_part(
+                cavity_mask,w,h,scale,"cavidad interior",
+                meta.get("cavity_paths") if smooth else None,
+                meta.get("cavity_splines") if smooth else None)
+            outer_solid=rear_face.extrude(App.Vector(0,0,height))
+            # Extend the tool beyond the top to make a clean, open cavity.
+            tool=inset_face.extrude(App.Vector(0,0,cavity_depth+1.0))
+            tool.translate(App.Vector(0,0,rear_thickness))
+            housing=outer_solid.cut(tool)
+            bounds=housing.BoundBox
+            port=Part.makeCylinder(
+                2.5,rear_thickness+1.0,
+                App.Vector(
+                    (bounds.XMin+bounds.XMax)/2.0,
+                    bounds.YMin+8.0,-0.5))
+            housing=housing.cut(port)
+            try:
+                housing=housing.removeSplitter()
+            except Exception:
+                pass
+            if not housing.isValid() or len(housing.Solids)!=1:
+                raise ValueError(
+                    "El resultado tiene %d sólidos; la cavidad no es "
+                    "válida." % len(housing.Solids))
+            if progress:
+                progress(96,"Carcasa integrada · "+(
+                    "curvas CAD" if smooth else "contornos seguros"))
+            return housing
+        except Exception as exc:
+            failures.append(("curvas" if smooth else "seguro")+": "+str(exc))
+    raise ValueError(
+        "No se pudo crear la carcasa como un sólido único. "
+        "Se intentaron curvas y contornos seguros. Detalles: "+
+        "; ".join(failures))
 
-    # Skip re-vectorization: the native Part faces are built from masks.
+
+def make_lamp(cfg,source,extension,progress=None,mask_meta=None):
+    """Generate exactly two printable solids: front and solid-back housing."""
+    import FreeCAD as App
+
     meta=mask_meta if mask_meta is not None else build_masks(
         cfg,prepare_inputs(cfg,source,extension,progress),progress)
     w,h=meta["pixels"]
     scale=meta["scale"]
     front_thickness=2.0
-    rear_thickness=2.0
-    cavity_height=cfg.depth-front_thickness-rear_thickness
-    if cavity_height<4.0:
-        raise ValueError("La lámpara necesita espacio para LED y tapa trasera.")
-
-    if progress:progress(86,"Suavizando contornos y cerrando la tapa trasera")
-    front=_to_part(meta["front_mask"],w,h,scale,"frente",
-                   meta.get("front_paths"),
-                   meta.get("front_splines")).extrude(
-        App.Vector(0,0,front_thickness))
+    if cfg.depth-front_thickness-2.0<4.0:
+        raise ValueError("La lámpara necesita espacio para LED y fondo.")
+    if progress:progress(86,"Construyendo frontal y carcasa monolítica")
+    front=_to_part(
+        meta["front_mask"],w,h,scale,"frente",
+        meta.get("front_paths"),meta.get("front_splines")).extrude(
+            App.Vector(0,0,front_thickness))
     front.translate(App.Vector(0,0,cfg.depth-front_thickness))
-    frame=_to_part(meta["frame_mask"],w,h,scale,"marco",
-                   meta.get("frame_paths"),
-                   meta.get("frame_splines")).extrude(
-        App.Vector(0,0,cavity_height))
-    frame.translate(App.Vector(0,0,rear_thickness))
-    rear=_to_part(meta["rear_mask"],w,h,scale,"tapa trasera",
-                   meta.get("rear_paths"),
-                   meta.get("rear_splines")).extrude(
-        App.Vector(0,0,rear_thickness))
-
-    # Leave a small, explicitly bounded 5-mm exit for low-voltage LED wire.
-    # This is a pass-through in the rear cover, not an open back.
-    bounds=rear.BoundBox
-    cable_x=(bounds.XMin+bounds.XMax)/2.0
-    cable_y=bounds.YMin+8.0
-    port=Part.makeCylinder(2.5,rear_thickness+1.0,
-                           App.Vector(cable_x,cable_y,-0.5))
-    rear=rear.cut(port)
-    # The back and frame MUST form one printable part. Their coplanar joining
-    # faces meet at Z=rear_thickness; a compound would leave two solids.
-    housing=rear.fuse(frame)
-    try:
-        housing=housing.removeSplitter()
-    except Exception:
-        # removeSplitter is a cosmetic OCC operation: retaining a valid fused
-        # housing is preferable to losing the entire model.
-        pass
-    for shape,label in ((front,"frente"),(housing,"carcasa con fondo integrado")):
-        if not shape.isValid() or len(shape.Solids)!=1:
-            raise ValueError(
-                "El %s no es un sólido único imprimible; "
-                "ajusta puente, tamaño o detalle."%label)
-    if progress:progress(98,"Frente y carcasa trasera unidos, dos piezas listas")
+    housing=_closed_back_housing(meta,w,h,scale,cfg,
+                                 front_thickness=front_thickness,
+                                 rear_thickness=2.0,progress=progress)
+    if not front.isValid() or len(front.Solids)!=1:
+        raise ValueError(
+            "El frente calado no es una sola pieza imprimible. "
+            "Revisa el ancho de los puentes.")
+    if progress:progress(98,"Frontal y carcasa monolítica listos")
     return [
         ("nameforge_frente","Frente de silueta · nombre calado",
          front,(.94,.94,.94)),
-        ("nameforge_marco","Carcasa · marco y fondo integrados",
+        ("nameforge_marco","Carcasa monolítica · fondo integrado",
          housing,(.20,.25,.34))]
 
 
