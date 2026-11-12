@@ -78,7 +78,23 @@ class VTracerAdapterTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             vt.svg_rings("<!DOCTYPE svg><svg/>",mask,w,h)
         with self.assertRaises(ValueError):
-            vt.svg_rings('<svg viewBox="0 0 30 30"><path transform="scale(2)" d="M 1 1 L 4 1 L 4 4 Z"/></svg>',mask,w,h)
+            vt.svg_rings('<svg viewBox="0 0 30 30"><path transform="skewX(20)" d="M 1 1 L 4 1 L 4 4 Z"/></svg>',mask,w,h)
+
+    def test_real_vtracer_group_transform_is_supported(self):
+        w=h=40
+        mask=bytearray(w*h)
+        rectangle(mask,w,5,5,35,35)
+        svg=('''<svg viewBox="0 0 40 40">
+            <g transform="translate(0 40) scale(1 -1)" fill="#000000">
+              <path d="M 5 5 H 35 V 35 H 5 Z"/></g></svg>''')
+        rings=vt.svg_rings(svg,mask,w,h)
+        self.assertEqual(len(rings),1)
+        xs=[x for x,y in rings[0]]
+        ys=[y for x,y in rings[0]]
+        self.assertAlmostEqual(min(xs),5)
+        self.assertAlmostEqual(max(xs),35)
+        self.assertAlmostEqual(min(ys),5)
+        self.assertAlmostEqual(max(ys),35)
 
     def test_native_vectorizer_is_in_a_child_process(self):
         def crashed(*args,**kwargs):
