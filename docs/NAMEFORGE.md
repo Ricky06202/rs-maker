@@ -29,9 +29,34 @@ El botón **Sugerir dimensiones según el detalle** analiza la imagen o SVG y pr
 
 Se almacenan el SVG o imagen fuente en los parámetros del documento FreeCAD (contenido embebido en base64). Así puede volver a editarse el mismo proyecto aunque el original haya cambiado de lugar. Se conservan ancho, alto, profundidad, tipografía, nombre, modo, número de colores y ancho de puentes.
 
+## Procesamiento acelerado en GPU AMD (opcional)
+
+Para el modo **Lámpara**, NameForge puede usar OpenCL de OpenCV a través de `cv2.UMat` para clasificar píxeles y realizar dilatación, erosión, apertura y cierre sobre máscaras. **No necesita CUDA ni NVIDIA.** El resto del trabajo —conectividad de islas, puentes, contornos CAD, extrusiones y uniones booleanas de OpenCascade— continúa ejecutándose en CPU. El cálculo de máscaras y contornos se ejecuta en un **QThread**, pero la creación de sólidos FreeCAD sigue en el hilo principal porque sus APIs no son seguras para operaciones concurrentes.
+
+El diálogo ofrece tres opciones:
+
+- **Automático:** intenta OpenCL si la instalación de FreeCAD ve OpenCV y un dispositivo OpenCL disponible; si no, vuelve a CPU.
+- **Preferir GPU · OpenCL:** solicita la misma aceleración y vuelve automáticamente a CPU ante errores, sin interrumpir la generación.
+- **Solo CPU:** evita importar OpenCV y funciona sin dependencias adicionales.
+
+El OpenCV que utiliza NameForge debe ser importable desde **el Python integrado en FreeCAD**; instalarlo en otro entorno Python no basta. En Linux, puede verificarse la disponibilidad desde la consola Python de FreeCAD con:
+
+```python
+import cv2
+print("OpenCL disponible:", cv2.ocl.haveOpenCL())
+cv2.ocl.setUseOpenCL(True)
+print("OpenCL habilitado:", cv2.ocl.useOpenCL())
+```
+
+Si OpenCV no está instalado, o el controlador AMD no expone OpenCL, NameForge conserva su ruta CPU sin cambios. En entornos Qt de FreeCAD, **se recomienda una instalación de OpenCV sin componentes Qt adicionales** (por ejemplo, paquete `opencv-python-headless` compatible con el Python del sistema) para evitar conflictos de plugins, sin modificar el Python de FreeCAD a ciegas.
+
+Al finalizar se imprime en la **consola de FreeCAD** el procesador usado y los tiempos de preparación, silueta, máscaras y contornos. Prueba el mismo dibujo primero con «Solo CPU» y luego con «Automático» y compara los tiempos. OpenCV puede usar una implementación CPU incluso cuando OpenCL está habilitado; `UMat` <b>no garantiza</b> que cada operación use la GPU ni que sea más rápida. La transferencia GPU↔CPU también cuesta tiempo.
+
+**Pendiente de validación real:** aún no se ha verificado esta ruta con un equipo AMD del usuario, sus controladores ni OpenCascade instalado en FreeCAD. Las pruebas CI cubren compatibilidad y respaldo CPU; no ejecutan GPU AMD.
+
 ## Compatibilidad y pruebas
 
-- El esquema NameForge pasa a versión 4 y conserva los proyectos anteriores (esquemas 1, 2 y 3).
+- El esquema NameForge pasa a versión 6 y conserva los proyectos anteriores (esquemas 1–5).
 - Se utiliza QtSvg/QImage y FreeCAD/Part incluidos con FreeCAD 1.x: no se exigen OpenCV, NumPy ni programas externos.
 - Hay pruebas Python de máscaras, huecos y puentes, además de las pruebas anteriores del proyecto.
 - **Todavía no se ha probado el circuito completo en la interfaz real de FreeCAD ni con una impresión física.** No debe asumirse que todas las siluetas tendrán suficiente resistencia ni que el cableado LED está certificado.

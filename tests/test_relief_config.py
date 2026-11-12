@@ -46,6 +46,14 @@ class ReliefConfigTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "calidad"):
             replace(self.cfg, quality_mode="ultra").validate()
 
+    def test_compute_backend_is_optional_and_compatible(self):
+        from dataclasses import replace
+        self.assertEqual(self.cfg.compute_backend,"auto")
+        for mode in ("auto","opencl","cpu"):
+            self.assertEqual(replace(self.cfg,compute_backend=mode).validate().compute_backend,mode)
+        with self.assertRaisesRegex(ValueError,"procesador"):
+            replace(self.cfg,compute_backend="cuda").validate()
+
     def test_valid_full_solid_parameters(self):
         self.assertEqual(self.cfg.validate().depth, 12.0)
         self.assertGreaterEqual(self.cfg.width, 30)
