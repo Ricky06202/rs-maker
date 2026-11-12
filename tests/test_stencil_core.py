@@ -154,6 +154,45 @@ class StencilTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             st.quality_settings("unsafe",150,150)
 
+    def test_spline_spans_keep_closed_loops_and_sharp_corners(self):
+        from freecad.RSMaker.curve_fit import sharp_corners, spline_spans
+        square=[(4,4),(50,4),(50,50),(4,50)]
+        self.assertEqual(len(sharp_corners(square)),4)
+        parts=spline_spans(square)
+        self.assertEqual(len(parts),4)
+        self.assertEqual(sum(len(segment)-1 for segment in parts),len(square))
+        for i,segment in enumerate(parts):
+            self.assertEqual(segment[-1],parts[(i+1)%len(parts)][0])
+
+    def test_smoothing_does_not_change_sharp_spikes_or_shift_supports(self):
+        from math import hypot
+        from freecad.RSMaker.curve_fit import smooth_ring, spline_spans
+        points=[(1,1),(30,1),(32,11),(34,12),(36,13),
+                (38,14),(40,15),(42,16),(30,35),(1,35)]
+        smoothed=smooth_ring(points,iterations=3)
+        self.assertEqual(smoothed[0],(1.0,1.0))
+        self.assertEqual(smoothed[1],(30.0,1.0))
+        self.assertTrue(any(a!=tuple(b) for a,b in zip(smoothed,points)))
+        self.assertTrue(all(hypot(a[0]-b[0],a[1]-b[1])<=.681
+                            for a,b in zip(smoothed,points)))
+        spans=spline_spans(smoothed,max_points=5)
+        self.assertEqual(sum(len(segment)-1 for segment in spans),len(points))
+        for index,span in enumerate(spans):
+            self.assertEqual(span[-1],spans[(index+1)%len(spans)][0])
+
+    def test_rounded_hole_and_outline_still_generate_two_contours(self):
+        from freecad.RSMaker.curve_fit import spline_spans
+        w=h=80
+        mask=bytearray(w*h)
+        rect(mask,w,6,6,74,74)
+        rect(mask,w,25,25,54,54,0)
+        for mode in ("balanced","high"):
+            contours=st.cleaned_contours(mask,w,h,mode)
+            self.assertEqual(len(contours),2)
+            for path in contours:
+                self.assertTrue(spline_spans(path))
+                self.assertGreaterEqual(len(path),4)
+
     def test_quality_smoothing_preserves_hole_and_outline(self):
         w=h=70
         mask=bytearray(w*h)

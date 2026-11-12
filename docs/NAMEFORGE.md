@@ -66,3 +66,12 @@ Al finalizar se imprime en la **consola de FreeCAD** el procesador usado y los t
 En modo lámpara el generador devuelve **exactamente dos cuerpos FreeCAD**, frontal calado (`nameforge_frente`) y carcasa cerrada (`nameforge_marco`). La segunda contiene marco + tapa trasera fusionados mediante una operación booleana de sólidos. La comprobación exige que el resultado sea válido y tenga **un único sólido**: un mero compuesto de dos cuerpos no es suficiente. El grupo `nameforge_tapa_trasera` de proyectos antiguos se elimina al regenerar el mismo proyecto, conservando el objeto `nameforge_marco` para mantener la compatibilidad de edición.
 
 El frente sigue separado para poder colocar los LED. El orificio trasero de cable continúa en el fondo y no se exporta una tapa separada. **Validación pendiente:** generar en FreeCAD real y comprobar el contacto de ambas superficies y tolerancias de montaje antes de imprimir.
+
+
+## Contornos con curvas CAD (actualización de acabado)
+
+En modo **Balanceado** y **Alta calidad**, los contornos de la ilustración, las perforaciones del nombre y la carcasa se suavizan en el trabajador de NameForge y se dividen en tramos delimitados por las **esquinas verdaderas**. Durante la construcción del modelo, FreeCAD convierte los tramos suaves en **curvas B-spline reales de OpenCascade** mediante `Part.BSplineCurve.interpolate(...)`; no se limita a unir todos los píxeles con segmentos rectos ni depende del SVG intermedio. Las puntas largas y deliberadas (cabello, esquinas de la placa) se mantienen sin redondear. Los ajustes rápidos conservan los polígonos ligeros.
+
+Si la B-spline invade una perforación o FreeCAD la rechaza, el generador **reintenta automáticamente** con polígonos ya suavizados y después con los contornos conservadores originales. La validación comprueba wires cerrados y caras válidas antes de extruir; el frente conserva sus puentes y la carcasa posterior permanece un único sólido con el marco unido.
+
+Las curvas se calculan parcialmente en el QThread: la preparación y división de tramos se hace fuera de la GUI; **la creación de curvas FreeCAD y las booleanas CAD siguen en el hilo principal**, por seguridad. Un diseño extremadamente complejo puede hacer lenta esa fase. Las pruebas Python no sustituyen la validación visual de FreeCAD ni una impresión física.

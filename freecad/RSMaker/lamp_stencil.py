@@ -288,6 +288,13 @@ def build_masks(cfg,prepared,progress=None):
         "frame_paths": core.cleaned_contours(frame,w,h,mode),
         "rear_paths": core.cleaned_contours(rear_mask,w,h,mode),
     }
+    if mode!="fast":
+        from .curve_fit import spline_spans
+        paths.update({
+            "front_splines": [spline_spans(r) for r in paths["front_paths"]],
+            "frame_splines": [spline_spans(r) for r in paths["frame_paths"]],
+            "rear_splines": [spline_spans(r) for r in paths["rear_paths"]],
+        })
     timings["total_preparation_s"]=round(perf_counter()-started,3)
     timings["contours_s"]=round(timings["total_preparation_s"]-
                                timings["silhouette_s"]-
@@ -317,37 +324,65 @@ def prepare_mask(cfg,source,extension,progress=None):
             core.to_svg(frame_rings,w,h,meta["scale"]),meta)
 
 
-def _to_part(mask,w,h,pixels_per_mm,label,paths=None):
-    """Build watertight faces directly from raster boundary loops.
+def _spline_wire(spans,w,h,pixels_per_mm):
+    """Turn an already-fitted contour plan into actual OpenCascade curves.
 
-    The old importSVG round-trip placed many subpaths into one compound
-    SVG path, which could lead to FreeCAD's 'Wire is not closed' exception.
-    Native Part polygons explicitly repeat their starting vertex and
-    Part::FaceMakerBullseye assigns nested loops as holes.
+    Per-span interpolation avoids historical periodic B-spline seam problems.
+    Each span ends on the next one's start; real corners remain separate.
+    """
+    import FreeCAD as App
+    import Part
+    edges=[]
+    for span in spans:
+        vectors=[App.Vector(float(x)/pixels_per_mm,
+                            float(h-y)/pixels_per_mm,0)
+                 for x,y in span]
+        if len(vectors)<4:
+            edges.extend(Part.makePolygon(vectors).Edges)
+        else:
+            spline=Part.BSplineCurve()
+            spline.interpolate(Points=vectors,PeriodicFlag=False)
+            edges.append(spline.toShape())
+    wire=Part.Wire(edges)
+    if not wire.isClosed() or not wire.isValid():
+        raise ValueError("La curva B-spline no quedó cerrada")
+    return wire
+
+
+def _to_part(mask,w,h,pixels_per_mm,label,paths=None,splines=None):
+    """Build faces with true CAD curves; fall back to printable polygons.
+
+    All subpaths are guaranteed closed before Part::FaceMakerBullseye
+    assigns interior islands and cut-through letter counters as holes.
     """
     import FreeCAD as App
     import Part
     errors=[]
-    # Preprocessed rings arrive from the background worker. Recompute a raw
-    # fallback only if the CAD kernel rejects the prepared (smoothed) face.
     candidates=[]
+    if paths is not None and splines is not None:
+        candidates.append(("curvas CAD",paths,splines))
     if paths is not None:
-        candidates.append(("preparado",paths))
-    candidates.extend((str(t),None) for t in (.85,.25,0.0))
-    for attempt,rings in candidates:
+        candidates.append(("polígono preparado",paths,None))
+    candidates.extend((str(t),None,None) for t in (.85,.25,0.0))
+    for attempt,rings,plans in candidates:
         try:
             if rings is None:
                 rings=core.contours(mask,w,h,tolerance=float(attempt),
                                     min_area=(pixels_per_mm**2)*.5)
+            if plans is not None and len(plans)!=len(rings):
+                raise ValueError("Plan de curvas incompleto")
             wires=[]
             for index,ring in enumerate(rings):
                 if len(ring)<3:
                     continue
-                vectors=[App.Vector(float(x)/pixels_per_mm,
-                                    float(h-y)/pixels_per_mm,0)
-                         for x,y in ring]
-                poly=Part.makePolygon(vectors+[vectors[0]])
-                wire=Part.Wire(poly.Edges)
+                if plans is not None:
+                    wire=_spline_wire(plans[index],w,h,pixels_per_mm)
+                else:
+                    vectors=[App.Vector(float(x)/pixels_per_mm,
+                                        float(h-y)/pixels_per_mm,0)
+                             for x,y in ring]
+                    poly=Part.makePolygon(vectors+[vectors[0]])
+                    wire=Part.Wire(poly.Edges)
                 if not wire.isClosed() or not wire.isValid():
                     raise ValueError("Contorno %d inválido"%(index+1))
                 wires.append(wire)
@@ -387,15 +422,18 @@ def make_lamp(cfg,source,extension,progress=None,mask_meta=None):
 
     if progress:progress(86,"Suavizando contornos y cerrando la tapa trasera")
     front=_to_part(meta["front_mask"],w,h,scale,"frente",
-                   meta.get("front_paths")).extrude(
+                   meta.get("front_paths"),
+                   meta.get("front_splines")).extrude(
         App.Vector(0,0,front_thickness))
     front.translate(App.Vector(0,0,cfg.depth-front_thickness))
     frame=_to_part(meta["frame_mask"],w,h,scale,"marco",
-                   meta.get("frame_paths")).extrude(
+                   meta.get("frame_paths"),
+                   meta.get("frame_splines")).extrude(
         App.Vector(0,0,cavity_height))
     frame.translate(App.Vector(0,0,rear_thickness))
     rear=_to_part(meta["rear_mask"],w,h,scale,"tapa trasera",
-                   meta.get("rear_paths")).extrude(
+                   meta.get("rear_paths"),
+                   meta.get("rear_splines")).extrude(
         App.Vector(0,0,rear_thickness))
 
     # Leave a small, explicitly bounded 5-mm exit for low-voltage LED wire.

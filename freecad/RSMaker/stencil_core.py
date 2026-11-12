@@ -474,17 +474,18 @@ def cleaned_contours(mask, width, height, mode="balanced", tolerance=None):
     Outer outlines can be smoothed more than the internal lettering/detail
     cutouts. CAD fallback can still request unsmoothed contours if required.
     """
+    from .curve_fit import smooth_ring
     options = QUALITY_MODES[mode]
     tol = options["tolerance"] if tolerance is None else tolerance
     loops = contours(mask, width, height, tolerance=tol, min_area=.5)
     output = []
     for ring in loops:
-        smooth = (options["outer_smooth"] if polygon_area(ring)>0
-                  else options["inner_smooth"])
-        # Avoid doubling enormous geometry for little visible benefit.
-        if smooth and len(ring)<=2400:
-            ring = soften_contour(ring, iterations=smooth)
-        output.append(ring)
+        iterations = (options["outer_smooth"] if polygon_area(ring)>0
+                      else options["inner_smooth"])
+        # Preserve sharp corners and tiny supports: never move a contour
+        # point more than 0.68 source pixels. True B-spline fitting happens
+        # later in Part, after the worker has prepared open curve spans.
+        output.append(smooth_ring(ring, iterations=iterations))
     return output
 
 
