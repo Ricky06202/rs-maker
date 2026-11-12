@@ -29,6 +29,7 @@ class ReliefConfig:
     palette_colors: int = 8
     bridge_width: float = 1.6
     quality_mode: str = "balanced"
+    compute_backend: str = "auto"
 
     def validate(self):
         if not 30 <= self.width <= 430 or not 40 <= self.height <= 430:
@@ -53,6 +54,8 @@ class ReliefConfig:
             raise ValueError("El ancho del puente debe ser 1.0–3.5 mm.")
         if self.quality_mode not in ("fast","balanced","high"):
             raise ValueError("Selecciona calidad rápida, balanceada o alta.")
+        if self.compute_backend not in ("auto","opencl","cpu"):
+            raise ValueError("Selecciona un procesador válido (automático, OpenCL o CPU).")
         if not self.font_path.lower().endswith((".ttf", ".otf")):
             raise ValueError("Selecciona una fuente .ttf o .otf.")
         if not os.path.isfile(self.font_path):
@@ -66,7 +69,7 @@ DISPLAY = {"width":"Ancho de la caja", "height":"Alto de la caja",
            "depth":"Profundidad total", "artwork_relief":"Incrustación del dibujo (histórico)",
            "text_relief":"Incrustación del nombre (histórico)", "text_size":"Altura del nombre",
            "margin":"Margen"}
-SCHEMA = 5
+SCHEMA = 6
 LAMP_FRONT = 2.0  # flat, printable translucent front plate (mm)
 LAMP_WALL = 3.0   # adhesive frame width (mm)
 
@@ -196,7 +199,7 @@ def make_parts(cfg, svg_xml, progress=None):
 
 
 def is_project(obj):
-    return hasattr(obj, "RSMakerReliefSchema") and obj.RSMakerReliefSchema in (1, 2, 3, 4, SCHEMA)
+    return hasattr(obj, "RSMakerReliefSchema") and obj.RSMakerReliefSchema in (1, 2, 3, 4, 5, SCHEMA)
 
 
 def project_from_selection():
@@ -218,7 +221,8 @@ def from_project(root):
                         text=root.Caption, lamp_mode=bool(getattr(root, "LampMode", False)),
                         palette_colors=int(getattr(root,"PaletteColors",8)),
                         bridge_width=float(getattr(bridge,"Value",bridge)),
-                        quality_mode=str(getattr(root,"QualityMode","balanced")), **values)
+                        quality_mode=str(getattr(root,"QualityMode","balanced")),
+                        compute_backend=str(getattr(root,"ComputeBackend","auto")), **values)
 
 
 def _properties(root, cfg, source, create=False):
@@ -241,7 +245,10 @@ def _properties(root, cfg, source, create=False):
         root.addProperty("App::PropertyLength", "BridgeWidth", "Fabricación")
     if not hasattr(root, "QualityMode"):
         root.addProperty("App::PropertyString", "QualityMode", "Fabricación")
+    if not hasattr(root,"ComputeBackend"):
+        root.addProperty("App::PropertyString","ComputeBackend","Fabricación")
     root.RSMakerReliefSchema = SCHEMA
+    root.ComputeBackend = cfg.compute_backend
     root.QualityMode = cfg.quality_mode
     root.LampMode = cfg.lamp_mode
     root.SVGPath = cfg.svg_path
@@ -380,6 +387,16 @@ class ReliefDialog(QtWidgets.QDialog):
             "Controla la resolución y el suavizado; los límites de memoria "
             "evitan que diseños grandes saturen FreeCAD.")
         form.addRow("Calidad del contorno",self.quality)
+        self.backend = QtWidgets.QComboBox()
+        for label,value in (
+                ("Automático · AMD/OpenCL si disponible","auto"),
+                ("Preferir GPU · OpenCL (respaldo CPU)","opencl"),
+                ("Solo CPU · sin dependencias extra","cpu")):
+            self.backend.addItem(label,value)
+        self.backend.setToolTip(
+            "OpenCV y un controlador OpenCL funcional son opcionales. "
+            "La fase final de FreeCAD/OpenCascade sigue utilizando CPU.")
+        form.addRow("Procesamiento de imagen",self.backend)
         self.sizes = {}
         defaults = ReliefConfig()
         for name in ("width", "height", "depth", "text_size", "margin"):
@@ -426,6 +443,8 @@ class ReliefDialog(QtWidgets.QDialog):
             self.bridge.setValue(cfg.bridge_width)
             quality_index=self.quality.findData(cfg.quality_mode)
             self.quality.setCurrentIndex(max(0,quality_index))
+            compute_index=self.backend.findData(cfg.compute_backend)
+            self.backend.setCurrentIndex(max(0,compute_index))
             self.lamp_mode.setChecked(cfg.lamp_mode)
         self._ratio = self.sizes["width"].value() / self.sizes["height"].value()
         self._updating_link = False
@@ -501,6 +520,7 @@ class ReliefDialog(QtWidgets.QDialog):
         self.palette.setEnabled(not is_lamp)
         self.bridge.setEnabled(is_lamp)
         self.quality.setEnabled(is_lamp)
+        self.backend.setEnabled(is_lamp)
         if is_lamp:
             self.feedback.setText(
                 "Lámpara: silueta exterior, detalles y nombre calados. "
@@ -581,6 +601,7 @@ class ReliefDialog(QtWidgets.QDialog):
                            palette_colors=self.palette.value(),
                            bridge_width=self.bridge.value(),
                            quality_mode=str(self.quality.currentData()),
+                           compute_backend=str(self.backend.currentData()),
                            **{name:field.value() for name,field in self.sizes.items()})
         dialog = QtWidgets.QProgressDialog(
             "Preparando diseño...", "Cancelar", 0, 100, self)
@@ -606,6 +627,20 @@ class ReliefDialog(QtWidgets.QDialog):
                 on_progress(86, "Construyendo sólidos en FreeCAD (fase CAD)")
             self.root = save_project(
                 cfg, self.root, progress=on_progress, lamp_mask_meta=meta)
+            if meta:
+                import FreeCAD as App
+                diagnostics=meta.get("acceleration",{})
+                timings=meta.get("timings",{})
+                App.Console.PrintMessage(
+                    "RS Maker NameForge | Procesador: %s | %s | "
+                    "preparación: %.2f s, silueta: %.2f s, "
+                    "máscaras: %.2f s, contornos: %.2f s\\n" %
+                    (diagnostics.get("backend","CPU"),
+                     diagnostics.get("detail",""),
+                     timings.get("total_preparation_s",0),
+                     timings.get("silhouette_s",0),
+                     timings.get("mask_and_bridges_s",0),
+                     timings.get("contours_s",0)))
             dialog.setValue(100)
             success = True
         except Exception as exc:
