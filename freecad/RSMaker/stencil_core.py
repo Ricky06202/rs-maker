@@ -136,8 +136,9 @@ def keep_largest(mask,w,h):
 def connect_islands(material,envelope,w,h,bridge_radius,min_island=2):
     """Insert supporting stencil bridges for counters and isolated islands.
 
-    Multisource BFS from the main body traces the shortest passages through
-    apertures to detached components. Tiny loose specks are discarded.
+    Multisource BFS from the main body connects islands with support paths.
+    Reached islands become traversable portals to enclosed, nested cutouts
+    without filling their material again. Tiny loose specks are discarded.
     """
     _validate(material,w,h)
     _validate(envelope,w,h)
@@ -175,12 +176,29 @@ def connect_islands(material,envelope,w,h,bridge_radius,min_island=2):
             i=groups[n]
             if i>=0 and i not in found:
                 found[i]=p
+                # This island is now reachable by a supporting bridge.
+                # Its own material is free to traverse, so expose the empty
+                # regions on *all* its sides to the BFS. Without this portal,
+                # nested cutouts (O inside R, multiple layered outlines, etc.)
+                # become unreachable even though a manufacturable path exists.
+                # Each blank pixel has only one BFS parent; passing across
+                # solid island pixels requires no extra printed material.
+                for member in islands[i]:
+                    for beyond in neighbors(member,w,h):
+                        if envelope[beyond] and not out[beyond] and not seen[beyond]:
+                            seen[beyond]=1
+                            parent[beyond]=p
+                            q.append(beyond)
             if envelope[n] and not out[n] and not seen[n]:
                 seen[n]=1
                 parent[n]=p
                 q.append(n)
     if len(found)!=len(islands):
-        raise ValueError("No se pueden conectar todas las islas: reduce el detalle")
+        raise ValueError(
+            "Hay islas fuera de la silueta conectada. "
+            "Verifica que el dibujo y su base se toquen; "
+            "aumentar el tamaño o el detalle no debería impedir conectar "
+            "los huecos interiores.")
     guides=bytearray(w*h)
     for last in found.values():
         p=last

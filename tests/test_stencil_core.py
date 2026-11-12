@@ -40,6 +40,45 @@ class StencilTests(unittest.TestCase):
         self.assertTrue(any(connected[y*w+32] for y in range(25,45)))
         self.assertFalse(connected[18*w+45])
 
+    def test_nested_islands_connect_at_any_detail(self):
+        # Three enclosed material rings: an outer body and two islands.
+        # The second island can only be reached by passing through the first.
+        # The original BFS stopped at that island, incorrectly claiming
+        # the drawing was too detailed to support.
+        for size in (80, 240):
+            with self.subTest(size=size):
+                w=h=size
+                envelope=bytearray([1])*(w*h)
+                material=bytearray(w*h)
+
+                def ring(a,b,thick):
+                    rect(material,w,a,a,b,b)
+                    rect(material,w,a+thick,a+thick,b-thick,b-thick,0)
+
+                ring(2,size-2,max(2,size//80))
+                ring(size//6,size-size//6,max(2,size//80))
+                ring(size//3,size-size//3,max(2,size//80))
+                self.assertEqual(len(st.connected_components(material,w,h)),3)
+                result,bridges,removed=st.connect_islands(
+                    material,envelope,w,h,bridge_radius=2,min_island=2)
+                self.assertEqual((bridges,removed),(2,0))
+                self.assertEqual(len(st.connected_components(result,w,h)),1)
+                self.assertFalse(result[(size//2)*w+size//2],
+                                 "El centro calado debe permanecer abierto")
+
+    def test_unreachable_islands_have_actionable_error(self):
+        # Totally disconnected silhouette sections cannot be repaired using
+        # only internal aperture bridges. The error must identify that case.
+        w=h=40
+        envelope=bytearray(w*h)
+        material=bytearray(w*h)
+        rect(envelope,w,2,2,12,12)
+        rect(envelope,w,29,29,39,39)
+        rect(material,w,2,2,12,12)
+        rect(material,w,29,29,39,39)
+        with self.assertRaisesRegex(ValueError,"fuera de la silueta"):
+            st.connect_islands(material,envelope,w,h,2,2)
+
     def test_remove_tiny_loose_specks(self):
         w=h=40
         envelope=bytearray(w*h)
