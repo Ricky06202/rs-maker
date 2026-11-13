@@ -73,3 +73,37 @@ el cuerpo.
 imprimir una pareja de pivotes, verificar las holguras, y validar retención y
 esfuerzos de los cinco mecanismos. No considerar estos modelos como juguetes
 infantiles terminados ni listos para vender.
+
+
+## Incremento v0.4 — Mecanismos laterales alternativos
+
+1. En la interfaz, seleccionar **Frontal = Compuerta lineal**, los otros tres
+   laterales = rueda. Generar una caja y verificar cuatro cerrojos, tres
+   ruedas, una compuerta frontal, su tope desmontable y el dial de la tapa.
+2. Cambiar los cuatro laterales a «Compuerta lineal» y regenerar sin que
+   queden ruedas antiguas en el árbol. Restaurar uno a rueda y comprobar que
+   se eliminan sus antiguas piezas de compuerta; comprobar que no cambia la
+   dificultad de las otras caras.
+3. Guardar el documento FreeCAD v0.4 y reabrirlo: cada lado debe recordar el
+   mecanismo elegido. Abrir un proyecto v0.2/v0.3 y regenerarlo: por defecto
+   debe mantener las cuatro ruedas originales y el resto de parámetros.
+4. **Montaje:** imprimir un riel con una compuerta y el tope independiente.
+   Introducir la compuerta desde arriba y ajustar el tope con dos pivotes de
+   holgura radial nominal de 0,25 mm. Comprobar si es necesario un medio
+   de sujeción mecánica más robusto antes de uso continuado.
+5. **Prueba de desbloqueo:** sin bajar la compuerta, intentar mover el
+   cerrojo horizontalmente: la pieza debe impedir una carrera parcial
+   de 8 mm. Bajar la compuerta 12 mm, comprobar que el cerrojo puede
+   viajar 20 mm sin interferencias ni fuerza excesiva. Volver a bloquear.
+6. **Prueba de límites:** repetir para cajas de 150×150×75 mm y con los
+   extremos de holgura permitidos. Confirmar capas válidas, soportes,
+   resistencia de labios de retención y al menos 30 ciclos sin fractura.
+7. **Seguridad:** el tope removible, los pivotes, la leva, la compuerta y
+   las ruedas son piezas pequeñas. No comercializar ni entregar como
+   juguete infantil sin fijación cautiva verificada y evaluación de riesgos.
+
+**Verificado por CI:** OpenCascade crea sólidos válidos, comprueba ausencia
+de intersecciones en reposo y después de bajar la compuerta, y demuestra
+que el cerrojo trasladado 8 mm sí interfiere con la compuerta bloqueada.
+**No verificado:** fricción, fuerza del usuario, impresibilidad sin soportes,
+fijación real de los topes y validación en FreeCAD GUI del usuario.

@@ -1,10 +1,10 @@
 """Five-station CAD prototype: four side latches + one lid cam + original art.
 
-FreeCAD Part shapes; millimetres. Each side has a wheel that blocks its latch
-slider, and the slider enters a horizontal hole in a lug attached to the lid.
-A fifth dial under the lid hooks a shelf of the base. The four side designs
-share one proven-in-concept mechanism family in v0.2. Real actuation, strength,
-retaining hardware and safety MUST be validated with a printed prototype.
+FreeCAD Part shapes; millimetres. Four lateral locks can independently use
+a rotary wheel or a two-step linear gate (drop the gate before sliding the
+bolt). Every bolt still enters a horizontal lug under the upper lid, which
+has a fifth independent cam. Real actuation, strength, retaining hardware
+and safety MUST be validated with a printed prototype.
 
 All parts are modeled in the LOCKED assembly position, not plate-laid for
 printing. STL export preserves separate, identity-labeled parts.
@@ -61,9 +61,9 @@ def _motif(kind, cx, cy, z, size, height, Part, V):
 def build_shapes(cfg):
     """Return (part_key, solid, color) in closed assembly coordinates.
 
-    Physical release sequence: rotate each side gate 180° towards the side
-    away from the slider, pull its latch 20mm, then turn lid cam 90° and lift.
-    Wheel shaft and top cam need retaining hardware in the physical assembly.
+    Physical release sequence per side: rotate the wheel or lower the linear
+    gate 12mm, pull its latch 20mm, then turn the lid cam 90° and lift.
+    Wheel shaft, linear gate cap and top cam require retention validation.
     """
     cfg.validate()
     import FreeCAD as App

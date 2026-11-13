@@ -19,7 +19,7 @@ class PuzzleDialog(QtWidgets.QDialog):
     def __init__(self, root=None,parent=None):
         super().__init__(parent)
         self.root = root
-        self.setWindowTitle("RS Maker 0.3 | "+("Editar caja" if root else "Nueva caja de cinco puzzles"))
+        self.setWindowTitle("RS Maker 0.4 | "+("Editar caja" if root else "Nueva caja de cinco puzzles"))
         self.setMinimumWidth(530)
         self.resize(620,750)
         self.setModal(False)
@@ -34,8 +34,10 @@ class PuzzleDialog(QtWidgets.QDialog):
         heading=QtWidgets.QLabel("Caja puzzle sorpresa · Cinco retos obligatorios")
         heading.setStyleSheet("font-size: 17px; font-weight: 600;")
         main.addWidget(heading)
-        note=QtWidgets.QLabel("Cuatro laterales: gira su rueda y mueve el cerrojo. "
-                              "Tapa: gira la leva al final. La caja exige liberar los cinco seguros.")
+        note=QtWidgets.QLabel(
+            "Cuatro laterales: gira una rueda o baja una compuerta según "
+            "el mecanismo elegido, y luego desliza cada cerrojo. "
+            "Finalmente gira la leva de la tapa para liberar el quinto cierre.")
         note.setWordWrap(True)
         main.addWidget(note)
         scroll=QtWidgets.QScrollArea()
