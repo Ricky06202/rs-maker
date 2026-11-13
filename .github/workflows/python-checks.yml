@@ -29,4 +29,4 @@ jobs:
       - name: Install independently packaged OpenCascade (CadQuery)
         run: python -m pip install --only-binary ":all:" cadquery==2.6.1
       - name: Validate puzzle solids, interferences and collectible scenes
-        run: python -m unittest discover -s tests -p "test_*geometry_occ.py" -v && python -m unittest discover -s tests -p "test_collection.py" -v && python -m unittest discover -s tests -p "test_themed_collections.py" -v
+        run: python -m unittest discover -s tests -p "test_*geometry_occ.py" -v && python -m unittest discover -s tests -p "test_collection.py" -v && python -m unittest discover -s tests -p "test_themed_collections.py" -v && python -m unittest discover -s tests -p "test_sequential_lock.py" -v
