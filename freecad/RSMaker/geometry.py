@@ -14,6 +14,7 @@ from .config import (PuzzleConfig, FACES, DIAL_MARKS, ARM_HEIGHT,
                      THEMES, RELEASE_TRAVEL)
 from .collection import (make_restaurant, make_hamburger, make_side_emboss,
                          restaurant_lid_sockets)
+from .sequential_lock import make_sequential_lock
 from .themed_collections import (make_space_scene, make_beach_scene,
                                  make_astro_chibi, make_crab_chibi,
                                  make_themed_side_emboss)
@@ -111,7 +112,8 @@ def build_shapes(cfg):
         # Short opening of the inner wall at the knob stem route, but no cut
         # through the wall's very top; therefore it retains an upper rim.
         base = base.cut(_to_global(slot,face,W,D,V))
-        base = base.cut(_to_global(shaft_hole,face,W,D,V))
+        if cfg.face_mechanism(face)=="cerrojo_rueda":
+            base = base.cut(_to_global(shaft_hole,face,W,D,V))
         base = base.fuse(_to_global(body_mod,face,W,D,V))
         lid = lid.fuse(_to_global(lug,face,W,D,V))
 
@@ -125,21 +127,30 @@ def build_shapes(cfg):
         parts.append(("C%u_Cerrojo" % (index+1),
                       _to_global(latch,face,W,D,V),SIDE_COLORS[index]))
 
-        # External rotary blocker. Cam arm rises into the thumb lever's path;
-        # rotating it out of that path permits the latch to move to the left.
-        axle = cyl(2.0,w+7.7,V(pivot_u,-7,wheel_z),V(0,1,0))
-        dial = cyl(4.7,3,V(pivot_u,-9,wheel_z),V(0,1,0))
-        arm = mk(3.2,3,arm_h,V(pivot_u-1.6,-9,wheel_z+3.0))
-        wheel = axle.fuse(dial).fuse(arm)
-        # Small raised marks. They provide distinguishable selectable levels,
-        # but don't constitute a certified human difficulty measurement.
-        for n in range(mark_count):
-            a = 2*math.pi*n/mark_count
-            pip = cyl(.60,.7,V(pivot_u+3.5*math.cos(a),-9.5,
-                               wheel_z+3.5*math.sin(a)),V(0,1,0))
-            wheel = wheel.fuse(pip)
-        parts.append(("C%u_Rueda" % (index+1),
-                      _to_global(wheel,face,W,D,V),(0.95,.83,.39)))
+        if cfg.face_mechanism(face)=="cerrojo_rueda":
+            # Existing rotary blocker; backward-compatible geometry for
+            # projects built before the second mechanism was introduced.
+            axle = cyl(2.0,w+7.7,V(pivot_u,-7,wheel_z),V(0,1,0))
+            dial = cyl(4.7,3,V(pivot_u,-9,wheel_z),V(0,1,0))
+            arm = mk(3.2,3,arm_h,V(pivot_u-1.6,-9,wheel_z+3.0))
+            wheel = axle.fuse(dial).fuse(arm)
+            for n in range(mark_count):
+                a = 2*math.pi*n/mark_count
+                pip = cyl(.60,.7,V(pivot_u+3.5*math.cos(a),-9.5,
+                                   wheel_z+3.5*math.sin(a)),V(0,1,0))
+                wheel = wheel.fuse(pip)
+            parts.append(("C%u_Rueda" % (index+1),
+                          _to_global(wheel,face,W,D,V),(.95,.83,.39)))
+        else:
+            # Two distinct motions: lower a separate captive gate 12mm,
+            # then slide the same lid-engaging bolt horizontally 20mm.
+            # No rotary wheel and no unused shaft bore in the wall.
+            rails,gate,cap=make_sequential_lock(Part,V,pivot_u,z_bolt)
+            base=base.fuse(_to_global(rails,face,W,D,V))
+            parts.append(("C%u_Compuerta" % (index+1),
+                          _to_global(gate,face,W,D,V),(.83,.64,.44)))
+            parts.append(("C%u_SeguroCompuerta" % (index+1),
+                          _to_global(cap,face,W,D,V),(.91,.83,.64)))
 
     # Independent TOP dial, hooked under a fixed interior shelf of the base.
     dx,dy = W-32,D-32

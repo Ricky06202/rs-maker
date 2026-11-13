@@ -32,7 +32,20 @@ class TestConfig(unittest.TestCase):
     def test_unimplemented_families_not_claimed(self):
         self.assertTrue(PUZZLES['cerrojo_rueda']['implemented'])
         self.assertFalse(PUZZLES['laberinto']['implemented'])
-        self.assertFalse(PUZZLES['secuencia']['implemented'])
+        self.assertTrue(PUZZLES['secuencia']['implemented'])
+
+    def test_mixed_mechanisms_keep_five_independent_challenges(self):
+        cfg=PuzzleConfig(mecanismo_frontal="secuencia",
+                         mecanismo_derecha="cerrojo_rueda").validate()
+        self.assertEqual(cfg.face_mechanism("Frontal"),"secuencia")
+        self.assertEqual(cfg.face_mechanism("Derecha"),"cerrojo_rueda")
+        self.assertEqual(len(cfg.difficulties),5)
+        for bad in ("laberinto","cifrado","inexistente"):
+            with self.subTest(bad=bad),self.assertRaisesRegex(
+                    ValueError,"Mecanismo lateral"):
+                PuzzleConfig(mecanismo_frontal=bad).validate()
+        with self.assertRaisesRegex(ValueError,"quinto"):
+            cfg.face_mechanism("Tapa")
 
     def test_invalid_dimension_and_all_five_difficulties(self):
         for arg in ({"width":149},{"depth":149},{"clearance":.1},

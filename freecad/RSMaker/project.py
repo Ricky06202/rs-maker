@@ -1,12 +1,13 @@
-"""Safe FreeCAD document updates and schema-2-to-3 compatibility."""
-from .config import PuzzleConfig
+"""Safe FreeCAD document updates and schema-2/3/4 compatibility."""
+from .config import PuzzleConfig, SIDE_MECHANISM_FIELDS
 from .geometry import build_shapes
 
 DIMENSION_FIELDS = ("width", "depth", "height", "wall", "floor", "clearance")
 DIFFICULTY_FIELDS = ("frontal", "derecha", "trasera", "izquierda", "tapa")
 ART_FIELDS = ("collection", "figure", "scene", "expression")
-ALL_FIELDS = DIMENSION_FIELDS + DIFFICULTY_FIELDS + ("theme", "figure_height") + ART_FIELDS
-GENERATOR_VERSION = "0.3.0"
+ALL_FIELDS = (DIMENSION_FIELDS + DIFFICULTY_FIELDS +
+              SIDE_MECHANISM_FIELDS + ("theme", "figure_height") + ART_FIELDS)
+GENERATOR_VERSION = "0.4.0"
 
 
 def _set_parameters(root, cfg, create=False):
@@ -25,16 +26,22 @@ def _set_parameters(root, cfg, create=False):
             root.addProperty("App::PropertyString",prop,"Arte original")
     if not hasattr(root,"FigureHeight"):
         root.addProperty("App::PropertyLength","FigureHeight","Arte original")
-    root.RSMakerSchema = 3
+    for field in SIDE_MECHANISM_FIELDS:
+        prop=field.title().replace("_","")
+        if not hasattr(root,prop):
+            root.addProperty("App::PropertyString",prop,"Mecanismos (4 laterales)")
+    root.RSMakerSchema = 4
     root.GeneratorVersion = GENERATOR_VERSION
-    root.Notes = ("Cinco bloqueos mecánicos, cuatro laterales y leva superior; "
-                  "colección original opcional con mini escenario desmontable y chibi. "
-                  "Prototipo sin validar en FreeCAD real ni impresión: faltan retenedores, "
-                  "ensayo mecánico y pruebas de seguridad antes de usarlo como juguete.")
+    root.Notes = ("Cinco retos mecánicos, cuatro laterales con familia elegible "
+                  "(rueda o compuerta lineal) y leva superior; arte original "
+                  "con mini escenario y chibi. Prototipo sin validar físicamente: "
+                  "retención, resistencia y holguras requieren impresión de prueba.")
     root.Theme = cfg.theme
     for field in ART_FIELDS:
         setattr(root,field.capitalize(),getattr(cfg,field))
     root.FigureHeight = cfg.figure_height
+    for field in SIDE_MECHANISM_FIELDS:
+        setattr(root,field.title().replace("_",""),getattr(cfg,field))
     for name in DIMENSION_FIELDS:
         setattr(root,name,getattr(cfg,name))
     for name in DIFFICULTY_FIELDS:
@@ -76,7 +83,7 @@ def create_project(cfg, doc=None):
 
 
 def _is_project(obj):
-    return (hasattr(obj,"RSMakerSchema") and int(obj.RSMakerSchema) in (2,3))
+    return (hasattr(obj,"RSMakerSchema") and int(obj.RSMakerSchema) in (2,3,4))
 
 
 def get_project_from_selection():
@@ -92,7 +99,7 @@ def get_project_from_selection():
 
 def config_from_project(root):
     if not _is_project(root):
-        raise ValueError("Proyecto incompatible: crea uno nuevo con RS Maker 0.3.")
+        raise ValueError("Proyecto incompatible: crea uno nuevo con RS Maker.")
     def length(name):
         val = getattr(root,name)
         return float(getattr(val,"Value",val))
@@ -102,6 +109,9 @@ def config_from_project(root):
     values["theme"] = root.Theme
     for field in ART_FIELDS:
         values[field] = getattr(root,field.capitalize(),getattr(PuzzleConfig(),field))
+    for field in SIDE_MECHANISM_FIELDS:
+        values[field]=getattr(root,field.title().replace("_",""),
+                              getattr(PuzzleConfig(),field))
     height = getattr(root,"FigureHeight",30.0)
     values["figure_height"] = float(getattr(height,"Value",height))
     return PuzzleConfig(**values).validate()
@@ -110,7 +120,7 @@ def config_from_project(root):
 def regenerate_project(root,cfg):
     cfg.validate()
     if not _is_project(root):
-        raise ValueError("Solo se pueden regenerar proyectos del esquema 2 o 3.")
+        raise ValueError("Solo se pueden regenerar proyectos del esquema 2, 3 o 4.")
     parts = build_shapes(cfg)
     doc = root.Document
     doc.openTransaction("Regenerar cinco puzzles RS Maker")

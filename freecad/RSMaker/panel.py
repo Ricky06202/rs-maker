@@ -1,7 +1,8 @@
 """FreeCAD native assistant: all five puzzles always present."""
 import os
 from dataclasses import replace
-from .config import PuzzleConfig, PUZZLES, DIFFICULTIES, FACES, THEMES, DIAL_MARKS
+from .config import (PuzzleConfig, PUZZLES, DIFFICULTIES, FACES, THEMES,
+                     DIAL_MARKS, MECHANISM_FOR_FACE)
 from .collection import (COLLECTIONS, FIGURES, SCENES, EXPRESSIONS,
                          COLLECTION_OPTIONS, COLLECTION_DEFAULTS)
 from .project import create_project, regenerate_project, config_from_project
@@ -42,20 +43,25 @@ class PuzzleDialog(QtWidgets.QDialog):
         container=QtWidgets.QWidget()
         body=QtWidgets.QVBoxLayout(container)
 
-        lib=QtWidgets.QGroupBox("Biblioteca mecánica")
+        lib=QtWidgets.QGroupBox("Biblioteca de mecanismos · 4 laterales")
         lib_form=QtWidgets.QFormLayout(lib)
-        self.library=QtWidgets.QComboBox()
-        for key,item in PUZZLES.items():
-            self.library.addItem(item["name"]+("" if item["implemented"] else " · En desarrollo"),key)
-            if not item["implemented"]:
-                idx=self.library.count()-1
-                option=self.library.model().item(idx)
-                if option is not None:
-                    option.setEnabled(False)
-        self.library.setToolTip("v0.3: un mecanismo lateral común; más familias se implementarán después")
-        lib_form.addRow("Lateral disponible",self.library)
-        top_info=QtWidgets.QLabel("La tapa siempre incluye un quinto puzzle de leva giratoria. "
-                                  "Las opciones no implementadas están desactivadas.")
+        self.mechanisms={}
+        for face in FACES[:4]:
+            mechanism=QtWidgets.QComboBox()
+            for key,item in PUZZLES.items():
+                if not item["implemented"]:
+                    continue
+                mechanism.addItem(item["name"],key)
+            mechanism.setToolTip(
+                "Rueda: girar y retirar cerrojo. Secuencia: bajar "
+                "compuerta 12 mm y después retirar cerrojo 20 mm. "
+                "La leva de la tapa se conserva siempre.")
+            self.mechanisms[MECHANISM_FOR_FACE[face]]=mechanism
+            lib_form.addRow(face,mechanism)
+        top_info=QtWidgets.QLabel(
+            "Cuatro retos laterales independientes; la tapa conserva "
+            "la quinta leva. Los mecanismos siguen siendo prototipos "
+            "sin validación de montaje impreso.")
         top_info.setWordWrap(True)
         lib_form.addRow(top_info)
         body.addWidget(lib)
@@ -149,6 +155,7 @@ class PuzzleDialog(QtWidgets.QDialog):
         main.addWidget(buttons)
         for inp in self.sizes.values(): inp.valueChanged.connect(self.update_preview)
         for inp in self.faces.values(): inp.currentIndexChanged.connect(self.update_preview)
+        for inp in self.mechanisms.values(): inp.currentIndexChanged.connect(self.update_preview)
         self.theme.currentIndexChanged.connect(self.update_preview)
         for field in (self.figure,self.scene,self.expression):
             field.currentIndexChanged.connect(self.update_preview)
@@ -165,6 +172,10 @@ class PuzzleDialog(QtWidgets.QDialog):
             index=cbo.findData(getattr(cfg,key))
             if index>=0:cbo.setCurrentIndex(index)
         self.figure_height.setValue(cfg.figure_height)
+        for name,combo in self.mechanisms.items():
+            index=combo.findData(getattr(cfg,name))
+            if index>=0:
+                combo.setCurrentIndex(index)
         ti=self.theme.findData(cfg.theme)
         if ti >= 0:self.theme.setCurrentIndex(ti)
         self.sync_collection()
@@ -206,6 +217,7 @@ class PuzzleDialog(QtWidgets.QDialog):
     def make_config(self):
         args={name:inp.value() for name,inp in self.sizes.items()}
         args.update({name:inp.currentData() for name,inp in self.faces.items()})
+        args.update({name:inp.currentData() for name,inp in self.mechanisms.items()})
         args["theme"]=self.theme.currentData()
         args.update({key:getattr(self,key).currentData()
                      for key in ("collection","expression")})
@@ -223,13 +235,16 @@ class PuzzleDialog(QtWidgets.QDialog):
             art = (" · Colección %s · Figura: %s (%.1f mm) · Escena: %s" %
                    (cfg.collection,cfg.figure,cfg.figure_height,cfg.scene)
                    if cfg.collection!="Ninguna" else " · Sin colección")
-            self.preview.setText("5/5 caras activas · Espacio conservador del premio: "
-                                 "%.1f × %.1f × %.1f mm.\n"
-                                 "4 seguros laterales + 1 de tapa. "
-                                 "El último cierre se resuelve al final%s. "
-                                 "Tamaño mínimo de la caja actual: 150 mm, "
-                                 "la versión compacta aún está pendiente."
-                                 %(x,y,z,art))
+            sequence_count=sum(
+                cfg.face_mechanism(face)=="secuencia" for face in FACES[:4])
+            self.preview.setText(
+                "5/5 caras activas · Espacio conservador del premio: "
+                "%.1f × %.1f × %.1f mm.\n"
+                "%d compuertas lineales y %d ruedas laterales; "
+                "la leva superior permanece como quinto reto. "
+                "Secuencia: bajar compuerta y luego deslizar cerrojo. "
+                "Prototipo físico no validado%s."
+                %(x,y,z,sequence_count,4-sequence_count,art))
             self.create.setEnabled(True)
         except ValueError as exc:
             self.preview.setText("Corrige: "+str(exc))

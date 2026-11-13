@@ -14,13 +14,18 @@ THEMES = {"Ninguno": "", "Huellas": "paw", "Estrellas": "star", "Relámpagos": "
 PUZZLES = {
     "cerrojo_rueda": {"name": "Cerrojo deslizante con rueda de bloqueo", "implemented": True},
     "laberinto": {"name": "Laberinto mecánico", "implemented": False},
-    "secuencia": {"name": "Secuencia de correderas", "implemented": False},
+    "secuencia": {"name": "Compuerta lineal: bajar y deslizar", "implemented": True},
     "cifrado": {"name": "Combinación de símbolos", "implemented": False},
 }
 # These are measurable geometry differences, NOT user-tested difficulty ratings.
 DIAL_MARKS = {"Fácil": 2, "Medio": 4, "Difícil": 8}
 ARM_HEIGHT = {"Fácil": 7.5, "Medio": 9.0, "Difícil": 10.5}
 RELEASE_TRAVEL = 20.0
+SIDE_MECHANISM_FIELDS = (
+    "mecanismo_frontal","mecanismo_derecha",
+    "mecanismo_trasera","mecanismo_izquierda",
+)
+MECHANISM_FOR_FACE = dict(zip(FACES[:4],SIDE_MECHANISM_FIELDS))
 
 
 @dataclass(frozen=True)
@@ -37,6 +42,10 @@ class PuzzleConfig:
     trasera: str = "Fácil"
     izquierda: str = "Medio"
     tapa: str = "Medio"
+    mecanismo_frontal: str = "cerrojo_rueda"
+    mecanismo_derecha: str = "cerrojo_rueda"
+    mecanismo_trasera: str = "cerrojo_rueda"
+    mecanismo_izquierda: str = "cerrojo_rueda"
     collection: str = "Ninguna"
     figure: str = "Ninguna"
     scene: str = "Ninguno"
@@ -47,6 +56,11 @@ class PuzzleConfig:
         return getattr(self, {"Frontal":"frontal", "Derecha":"derecha",
                               "Trasera":"trasera", "Izquierda":"izquierda",
                               "Tapa":"tapa"}[face])
+
+    def face_mechanism(self, face):
+        if face not in MECHANISM_FOR_FACE:
+            raise ValueError("La leva superior es el quinto mecanismo fijo.")
+        return getattr(self, MECHANISM_FOR_FACE[face])
 
     @property
     def difficulties(self):
@@ -83,6 +97,10 @@ class PuzzleConfig:
             raise ValueError("Motivo decorativo desconocido.")
         if any(value not in DIFFICULTIES for value in self.difficulties):
             raise ValueError("Cada una de las cinco caras necesita una dificultad válida.")
+        for face in FACES[:4]:
+            key=self.face_mechanism(face)
+            if key not in PUZZLES or not PUZZLES[key]["implemented"]:
+                raise ValueError("Mecanismo lateral no implementado: %s" % key)
         return self
 
 
