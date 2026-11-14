@@ -94,16 +94,27 @@ def plan_plates(items, bed_width=430.0, bed_depth=430.0,
 
 def _generated_objects(root):
     objects=[]
+    seen=set()
+    # NameForge multicolour solids can be multi-body colour compounds; these
+    # must remain exportable as before. Puzzle mechanism parts, on the other
+    # hand, must be single physical bodies.
+    allow_compounds=hasattr(root,"RSMakerReliefSchema")
     for obj in root.Group:
         key=getattr(obj,"RSMakerPartKey",None)
         shape=getattr(obj,"Shape",None)
         if not key or shape is None:
             continue
+        if key in seen:
+            raise ValueError("Clave de pieza duplicada: %s" % key)
+        seen.add(key)
+        if not _VALID_KEY.fullmatch(key):
+            raise ValueError("Nombre de pieza STL no válido: %s" % key)
         if hasattr(shape,"isNull") and shape.isNull():
             raise ValueError("Pieza %s: geometría vacía." % key)
         if hasattr(shape,"isValid") and not shape.isValid():
             raise ValueError("Pieza %s: sólido CAD inválido." % key)
-        if hasattr(shape,"Solids") and len(shape.Solids)!=1:
+        if (not allow_compounds and hasattr(shape,"Solids") and
+                len(shape.Solids)!=1):
             raise ValueError("Pieza %s: no es un sólido único." % key)
         objects.append((key,obj))
     if not objects:
