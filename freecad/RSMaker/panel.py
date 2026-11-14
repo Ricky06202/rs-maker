@@ -271,37 +271,115 @@ def show_dialog(root=None):
     widget.exec()
 
 
+def _choose_export_folder(parent,title):
+    folder=QtWidgets.QFileDialog.getExistingDirectory(parent,title)
+    return folder or None
+
+
+def _confirm_replace(parent,folder,names):
+    if not any(os.path.exists(os.path.join(folder,name)) for name in names):
+        return True
+    answer=QtWidgets.QMessageBox.question(
+        parent,"Sobrescribir archivos",
+        "Ya existen STL o manifiestos con esos nombres. ¿Sobrescribir?",
+        QtWidgets.QMessageBox.Yes|QtWidgets.QMessageBox.No)
+    return answer==QtWidgets.QMessageBox.Yes
+
+
 def export_parts(root):
-    import Mesh
+    """Existing export keeps every part separately, now all at Z=0."""
     import FreeCADGui as Gui
+    from . import print_plates
     parent=Gui.getMainWindow()
-    folder=QtWidgets.QFileDialog.getExistingDirectory(parent,"Carpeta para STL separados")
-    if not folder:return
-    generated=[o for o in root.Group if hasattr(o,"RSMakerPartKey")
-               and hasattr(o,"Shape") and not o.Shape.isNull()]
-    targets=[(o,os.path.join(folder,o.RSMakerPartKey+".stl")) for o in generated]
-    if any(os.path.exists(path) for _,path in targets):
-        yes=QtWidgets.QMessageBox.question(parent,"Archivos existentes",
-             "Algunos STL existen. ¿Sobrescribirlos?",
-             QtWidgets.QMessageBox.Yes|QtWidgets.QMessageBox.No)
-        if yes!=QtWidgets.QMessageBox.Yes:return
+    folder=_choose_export_folder(parent,"Carpeta para STL separados")
+    if not folder:
+        return
     try:
-        for obj,path in targets:
-            # A lamp is assembled for preview: its raised front is at Z>0.
-            # Lower every mesh independently to Z=0 when exporting for the bed.
-            if hasattr(root, "RSMakerReliefSchema"):
-                import MeshPart
-                import FreeCAD as App
-                mesh = MeshPart.meshFromShape(
-                    Shape=obj.Shape, LinearDeflection=0.10,
-                    AngularDeflection=0.30, Relative=False)
-                mesh.translate(App.Vector(0, 0, -obj.Shape.BoundBox.ZMin))
-                mesh.write(path)
-            else:
-                Mesh.export([obj],path)
+        names=[key+".stl" for key,obj
+               in print_plates._generated_objects(root)]
+        if not _confirm_replace(parent,folder,names):
+            return
+        created=print_plates.export_separate(
+            root,folder,keep_xy=hasattr(root,"RSMakerReliefSchema"))
     except Exception as exc:
         QtWidgets.QMessageBox.critical(parent,"Error exportando",str(exc))
         return
-    QtWidgets.QMessageBox.information(parent,"Exportación completada",
-        "%d STL independientes creados, con base en Z=0 para NameForge. "
-        "Orienta y distribuye las piezas en tu laminador."%len(targets))
+    QtWidgets.QMessageBox.information(
+        parent,"Exportación completada",
+        "%d STL individuales, cada pieza sobre Z=0. "
+        "Revisa orientación y soportes en el laminador."%len(created))
+
+
+def export_print_plates(root):
+    """Pack pieces onto one or more STL printer beds (without moving CAD)."""
+    import FreeCADGui as Gui
+    from . import print_plates
+    parent=Gui.getMainWindow()
+    if hasattr(root,"RSMakerReliefSchema"):
+        QtWidgets.QMessageBox.information(
+            parent,"Usa exportar STL",
+            "El modo platos está pensado para cajas puzzle. "
+            "Las lámparas conservan sus STL separados.")
+        return
+
+    dialog=QtWidgets.QDialog(parent)
+    dialog.setWindowTitle("Distribuir piezas en platos de impresión")
+    form=QtWidgets.QFormLayout(dialog)
+    def size_input(value,minval,maxval):
+        spin=QtWidgets.QDoubleSpinBox(dialog)
+        spin.setRange(minval,maxval)
+        spin.setValue(value)
+        spin.setDecimals(1)
+        spin.setSuffix(" mm")
+        return spin
+    width=size_input(430,100,1000)
+    depth=size_input(430,100,1000)
+    gap=size_input(6,2,25)
+    margin=size_input(8,3,30)
+    form.addRow("Ancho de cama",width)
+    form.addRow("Fondo de cama",depth)
+    form.addRow("Separación mínima",gap)
+    form.addRow("Margen exterior",margin)
+    warning=QtWidgets.QLabel(
+        "Distribuye la proyección XY original sin girar ni inclinar. "
+        "Cada pieza queda apoyada en Z=0. Comprueba soportes y "
+        "orientación de resistencia antes de imprimir.")
+    warning.setWordWrap(True)
+    form.addRow(warning)
+    buttons=QtWidgets.QDialogButtonBox(
+        QtWidgets.QDialogButtonBox.Ok|QtWidgets.QDialogButtonBox.Cancel)
+    buttons.accepted.connect(dialog.accept)
+    buttons.rejected.connect(dialog.reject)
+    form.addRow(buttons)
+    if dialog.exec()!=QtWidgets.QDialog.Accepted:
+        return
+    folder=_choose_export_folder(parent,"Elegir destino para los platos STL")
+    if not folder:
+        return
+    try:
+        generated=print_plates._generated_objects(root)
+        dims=[]
+        for key,obj in generated:
+            bbox=obj.Shape.BoundBox
+            dims.append((key,float(bbox.XMax-bbox.XMin),
+                         float(bbox.YMax-bbox.YMin)))
+        layout=print_plates.plan_plates(
+            dims,width.value(),depth.value(),margin.value(),gap.value())
+        names=["Plato_%02d.stl"%i
+               for i in sorted({p.plate for p in layout})]
+        names.append("Platos_RS_Maker.json")
+        if not _confirm_replace(parent,folder,names):
+            return
+        result=print_plates.export_plates(
+            root,folder,width.value(),depth.value(),
+            margin.value(),gap.value())
+    except Exception as exc:
+        QtWidgets.QMessageBox.critical(
+            parent,"No se pudieron crear los platos",str(exc))
+        return
+    QtWidgets.QMessageBox.information(
+        parent,"Platos generados",
+        "%d platos STL distribuidos con %d piezas. "
+        "Consulta Platos_RS_Maker.json para ver qué contiene cada plato. "
+        "El STL agrupa piezas separadas; comprueba el laminador."
+        %(len(result["plates"]),len(generated)))

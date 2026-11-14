@@ -13,7 +13,8 @@ class RSMakerWorkbench(Gui.Workbench):
 
     def Initialize(self):
         from . import commands  # noqa: F401 - command registration
-        names = ["RSMaker_Create", "RSMaker_Edit", "RSMaker_Export"]
+        names = ["RSMaker_Create", "RSMaker_Edit", "RSMaker_Export",
+                 "RSMaker_ExportPlates"]
         self.appendToolbar("RS Maker", names)
         self.appendMenu("RS Maker", names)
 

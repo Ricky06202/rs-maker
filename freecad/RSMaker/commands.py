@@ -78,7 +78,25 @@ class ExportProject:
             export_parts(root)
 
 
+class ExportPlates:
+    def GetResources(self):
+        return dict(Pixmap=os.path.join(ICON_DIR, "print.svg"),
+                    MenuText="Exportar platos STL",
+                    ToolTip="Distribuir piezas puzzle en platos de impresión automáticamente")
+
+    def IsActive(self):
+        kind,root=_selection()
+        return kind=="puzzle" and root is not None
+
+    def Activated(self):
+        kind,root=_selection()
+        if kind=="puzzle" and root is not None:
+            from .panel import export_print_plates
+            export_print_plates(root)
+
+
 Gui.addCommand("RSMaker_Create", Create())
 Gui.addCommand("RSMaker_New", NewPuzzle())
 Gui.addCommand("RSMaker_Edit", EditProject())
 Gui.addCommand("RSMaker_Export", ExportProject())
+Gui.addCommand("RSMaker_ExportPlates", ExportPlates())
