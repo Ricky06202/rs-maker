@@ -107,3 +107,30 @@ de intersecciones en reposo y después de bajar la compuerta, y demuestra
 que el cerrojo trasladado 8 mm sí interfiere con la compuerta bloqueada.
 **No verificado:** fricción, fuerza del usuario, impresibilidad sin soportes,
 fijación real de los topes y validación en FreeCAD GUI del usuario.
+
+
+## Validación de exportación automática por platos
+
+1. En una caja con al menos una compuerta de dos pasos y una colección
+   original, elegir **Exportar platos STL** desde el menú RS Maker.
+2. Introducir las medidas reales de la cama de la impresora (valor sugerido
+   430 × 430 mm; cambiar si tu máquina tiene otra superficie).
+3. Abrir todos los `Plato_XX.stl` mencionados en `Platos_RS_Maker.json`
+   en el laminador: cada conjunto debe estar sobre **Z=0** y sin superposiciones.
+   Comprobar que el laminador reconoce múltiples componentes dentro del STL.
+4. Repetir con una cama pequeña: la herramienta debe distribuir las piezas
+   entre varios platos; si la Base supera la cama, debe **rechazar** el trabajo
+   y explicar qué pieza no cabe. No debe escalar automáticamente el modelo
+   ni cambiar sus holguras mecánicas.
+5. Usar también **Exportar STL** y confirmar que los mecanismos ya no
+   aparecen flotando a su altura de montaje. Para NameForge multicolor,
+   verificar que los colores conservan su posición horizontal relativa.
+6. Elegir el soporte, adhesión, orientación y dirección de capas manualmente
+   en el laminador; empaquetar por huella XY **no optimiza soportes**.
+7. Si se reutiliza la carpeta de salida, usar únicamente los archivos listados
+   en el manifiesto nuevo; los platos sobrantes de una corrida anterior pueden
+   continuar presentes. Preferir un directorio vacío por tirada.
+8. Verificar manualmente en FreeCAD 1.x del equipo real: las pruebas de GitHub
+   usan dobles de módulos `MeshPart` y `Mesh` para asegurar ubicación,
+   y OpenCascade por separado para comprobar geometría; no constituyen
+   una prueba de la interfaz FreeCAD ni del laminador.

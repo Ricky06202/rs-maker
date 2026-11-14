@@ -104,3 +104,35 @@ CI comprueba BRep válidos con OpenCascade y simula con intersecciones del
 volumen una carrera intermedia de 8 mm bloqueada y liberada al bajar la
 compuerta. Esa prueba no equivale a ensayos de fricción ni a un mecanismo
 seguro para venta.
+
+
+## Exportar automáticamente por platos de impresión
+
+En el banco de trabajo de FreeCAD, selecciona el grupo de una **caja puzzle**
+y usa **RS Maker → Exportar platos STL**. Elige el ancho y el fondo de tu
+impresora (valor inicial **430 × 430 mm**, editable), el margen y la separación
+mínima entre piezas. El programa:
+
+1. Comprueba que cada parte CAD sea un sólido válido y que pueda caber en
+   la cama sin cambiar su orientación.
+2. Coloca las piezas ordenadamente sobre **uno o varios platos**, con
+   separación de seguridad entre las cajas envolventes de las piezas.
+3. Baja la base de **cada malla a Z=0**, independientemente de dónde estaba
+   en el conjunto montado; el documento FreeCAD original no se modifica.
+4. Genera `Plato_01.stl`, `Plato_02.stl`... y el manifiesto legible
+   `Platos_RS_Maker.json`, con piezas, posiciones y altura de cada plato.
+
+Los archivos STL de plato contienen **varias mallas separadas en un mismo
+archivo**, no un sólido booleano único: el laminador debe admitir múltiples
+cuerpos en STL. Importa **solo los platos enumerados en el manifiesto**, ya que
+una carpeta reutilizada puede conservar archivos de una exportación anterior.
+Los STL no preservan colores por pieza. La orientación XY inicial se mantiene
+sin volteos ni inclinaciones automáticas: **no se garantiza que una pieza
+necesite cero soportes**. En el laminador revisa soportes, orientación,
+adhesión, holguras y resistencia de cada parte.
+
+La opción anterior **Exportar STL** sigue generando una malla por pieza;
+ahora también las piezas puzzle se sitúan con su propio Z mínimo en cero,
+en lugar de quedar elevadas según el montaje CAD. Para NameForge multicolor,
+las capas que contienen varios sólidos del mismo color siguen permitidas y
+mantienen su alineación XY original para facilitar el reensamblaje digital.
