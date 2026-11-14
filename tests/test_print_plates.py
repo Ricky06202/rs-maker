@@ -188,6 +188,31 @@ class ExportTests(unittest.TestCase):
                 plates.export_plates(root,temp,430,430,8,6)
             self.assertEqual(os.listdir(temp),[])
 
+    def test_nameforge_colour_compounds_stay_exportable(self):
+        group=root_of(FakeShape("Color_A",0,0,7,20,20,2,
+                                solid_count=3))
+        group.RSMakerReliefSchema=7
+        self.assertEqual(len(plates._generated_objects(group)),1)
+        # For multicolour layers, their original XY alignment is preserved.
+        fakeapp=types.ModuleType("FreeCAD")
+        fakeapp.Vector=lambda x,y,z:(x,y,z)
+        fakepart=types.ModuleType("MeshPart")
+        fakepart.meshFromShape=FakeMeshPart.meshFromShape
+        with tempfile.TemporaryDirectory() as temp,patch.dict(
+                sys.modules,{"FreeCAD":fakeapp,"MeshPart":fakepart}):
+            self.assertEqual(plates.export_separate(
+                group,temp,keep_xy=True),["Color_A.stl"])
+            self.assertEqual(
+                json.load(open(os.path.join(temp,"Color_A.stl"),
+                               encoding="utf-8")),
+                [["Color_A",[0,0,-7]]])
+
+    def test_duplicate_printable_part_keys_fail_before_export(self):
+        group=root_of(FakeShape("A",0,0,0,2,2,2),
+                      FakeShape("A",1,1,1,3,3,3))
+        with self.assertRaisesRegex(ValueError,"duplicada"):
+            plates._generated_objects(group)
+
     def test_non_solid_or_invalid_shape_is_rejected(self):
         root=root_of(FakeShape("Bad",0,0,0,20,20,10,solid_count=2))
         with self.assertRaisesRegex(ValueError,"sólido único"):
