@@ -1,4 +1,4 @@
-# Plan de validación de RS Maker 0.2 en FreeCAD y físicamente
+# Plan de validación de RS Maker en FreeCAD y físicamente
 
 **Estado:** pruebas pendientes. La prueba OpenCascade de la geometría cerrada no demuestra articulación libre ni seguridad.
 
@@ -29,8 +29,8 @@
 
 ## 4. Mejoras obligatorias antes de una primera venta
 
-- Una biblioteca de al menos cuatro mecanismos laterales auténticamente diferentes, con adaptador al pestillo común.
-- Un selector de dificultad con cambios de reglas o pasos jugables, verificado con pruebas de usuario; no solo símbolos impresos.
+- Una biblioteca de cuatro mecanismos laterales y su adaptador al pestillo común (implementada en v0.5; movimiento físico pendiente).
+- Perfiles de dificultad con cambios de reglas o pasos (comprobados en geometría; evaluación con usuarios pendiente).
 - Un método de retención cautivo de todos los diales y partes móviles.
 - Importador de diseños con licencias claras y separación entre artes y mecanismo.
 - Ensayos físicos y documentación del producto apta para fabricante/impresor.
@@ -134,3 +134,27 @@ fijación real de los topes y validación en FreeCAD GUI del usuario.
    usan dobles de módulos `MeshPart` y `Mesh` para asegurar ubicación,
    y OpenCascade por separado para comprobar geometría; no constituyen
    una prueba de la interfaz FreeCAD ni del laminador.
+
+
+## Incremento v0.5 — Laberinto y cifrado de anillos
+
+1. Crear una caja y elegir una cara para cada familia: rueda, compuerta,
+   laberinto y cifrado. Generar, guardar y volver a abrir el documento; las
+   cuatro elecciones independientes deben conservarse.
+2. En el laberinto, recorrer el cursor por completo en Fácil, Medio y Difícil.
+   El cerrojo debe quedar retenido durante la ruta y despejar toda su carrera
+   de 20 mm cuando el cursor alcanza la salida. La ruta termina 8 mm a la
+   izquierda y 12 mm arriba de la posición inicial.
+3. En el cifrado, revisar que Fácil/Medio/Difícil generen 2/3/4 anillos y
+   2/4/8 marcas por anillo. Para verificar el CAD, las claves de prueba son
+   las posiciones `cipher_profile(level)["code"]`; después de alinear cada
+   ventana, bajar la compuerta 12 mm y retirar el cerrojo 20 mm.
+4. En Exportar piezas STL, verificar que guía y cursor del laberinto, todos
+   los anillos, compuerta y retenedor del cifrado sigan como cuerpos separados.
+   Comprobar orientación, soportes y que no se hayan fusionado partes móviles.
+5. Repetir la prueba en las dimensiones mínimas de 150 × 150 × 75 mm y con
+   holgura nominal de 0,20 mm. Confirmar que los controles no se salen de la
+   cara y que ninguna pieza roza la tapa.
+6. Repetir 30 ciclos por mecanismo impreso, anotar atascos, desgaste,
+   desprendimientos y fuerza de operación. Las pruebas OpenCascade validan
+   geometría e interferencias ideales; no sustituyen esta comprobación física.

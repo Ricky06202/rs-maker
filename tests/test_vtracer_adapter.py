@@ -123,6 +123,27 @@ class VTracerAdapterTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError,"VTracer externo"):
                 vt.run_external(b"png")
 
+    def test_external_timeout_has_a_bounded_diagnostic(self):
+        import subprocess
+        timeout=subprocess.TimeoutExpired(cmd=["private-python-path"],timeout=2)
+        with patch.object(vt,"python_executable",return_value="python"),\
+             patch.object(vt.subprocess,"run",side_effect=timeout) as run:
+            with self.assertRaisesRegex(RuntimeError,"límite de 2 s") as caught:
+                vt.run_external(b"png",timeout=2)
+        self.assertNotIn("private-python-path",str(caught.exception))
+        self.assertEqual(run.call_args.kwargs["timeout"],2)
+
+    def test_curve_expansion_budget_is_shared_across_svg_paths(self):
+        w=h=40
+        mask=bytearray(w*h)
+        # Each closed path expands to more than half the shared point budget.
+        curve=" C 0 1000000 1000000 0 0 0"
+        path="M 0 0"+curve*60+" Z"
+        svg=('<svg viewBox="0 0 40 40"><path d="%s"/>'
+             '<path d="%s"/></svg>')%(path,path)
+        with self.assertRaisesRegex(ValueError,"demasiados puntos vectorizados"):
+            vt.svg_rings(svg,mask,w,h)
+
 
 if __name__=="__main__":
     unittest.main()

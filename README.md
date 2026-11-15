@@ -1,6 +1,8 @@
-> **Nuevo módulo (en desarrollo):** RS Maker incluye el botón único **Crear…**, con un catálogo para elegir **Caja puzzle** o **NameForge (SVG + nombre)**. NameForge acepta **SVG, PNG, JPG y WebP** y ofrece GPU AMD/OpenCL opcional (con respaldo CPU y mediciones de tiempo): en modo caja convierte la imagen a colores planos sobre superficie lisa; en modo lámpara crea **silueta y nombre calados (huecos reales)** con puentes automáticos para evitar partes sueltas. Un checkbox alterna entre **caja maciza** y **lámpara hueca** (frente calado + carcasa única con marco y tapa trasera fusionados). Puedes editar texto, imagen, fuente y profundidad; ancho y alto escalan siempre proporcionalmente, y el botón **Sugerir dimensiones** propone tamaño según el detalle. Los cuerpos STL deben importarse al laminador como partes alineadas de **un mismo objeto multicolor**; el complemento aún no exporta 3MF coloreado. Ya no existe el límite arbitrario de 350 regiones SVG. Consulta [la guía de NameForge](docs/NAMEFORGE.md). Integrado en GitHub, pendiente de validación con FreeCAD real y una impresión de prueba.\n\n# RS Maker v0.4 — Caja puzzle de cinco retos y biblioteca mecánica
+> **Nuevo módulo (en desarrollo):** RS Maker incluye el botón único **Crear…**, con un catálogo para elegir **Caja puzzle** o **NameForge (SVG + nombre)**. NameForge acepta **SVG, PNG, JPG y WebP** y ofrece GPU AMD/OpenCL opcional (con respaldo CPU y mediciones de tiempo): en modo caja convierte la imagen a colores planos sobre superficie lisa; en modo lámpara crea **silueta y nombre calados (huecos reales)** con puentes automáticos para evitar partes sueltas. Un checkbox alterna entre **caja maciza** y **lámpara hueca** (frente calado + carcasa única con marco y tapa trasera fusionados). Puedes editar texto, imagen, fuente y profundidad; ancho y alto escalan siempre proporcionalmente, y el botón **Sugerir dimensiones** propone tamaño según el detalle. Los cuerpos STL deben importarse al laminador como partes alineadas de **un mismo objeto multicolor**; el complemento aún no exporta 3MF coloreado. Ya no existe el límite arbitrario de 350 regiones SVG. Consulta [la guía de NameForge](docs/NAMEFORGE.md). Integrado en GitHub, pendiente de validación con FreeCAD real y una impresión de prueba.
 
-**Estado:** prototipo CAD de ingeniería para adultos, **NO** juguete infantil validado o listo para vender. Todavía no se ha abierto en una interfaz real de FreeCAD ni ensamblado una impresión física. La versión 0.3 incorpora los generadores de figuras y escenarios originales sobre el núcleo mecánico experimental v0.2.
+# RS Maker v0.5 — Caja puzzle de cinco retos y biblioteca mecánica
+
+**Estado:** prototipo CAD de ingeniería para adultos, **NO** juguete infantil validado o listo para vender. La geometría y sus pruebas OpenCascade están automatizadas; todavía falta abrirlo en FreeCAD real, ensamblar una impresión y comprobar el movimiento físico. v0.5 añade dos familias mecánicas laterales.
 
 ## Lo nuevo: Comida, Hamburguesita y Restaurante
 
@@ -8,13 +10,13 @@
 2. **Chibi Hamburguesita:** sólido imprimible independiente de una sola pieza; pan, relleno, pies integrados y ojos y boca *grabados* (sin ojos sueltos). Altura regulable entre 25 y 40 mm; expresiones Feliz/Sorprendida. Se coloca dentro de la caja como referencia visual y para comprobar que ocupa un espacio viable.
 3. **Restaurante:** escena superior independiente con base, fachada, techo, letrero, toldo y dos pivotes cilíndricos. La tapa incluye dos huecos para esos pivotes. La escena no sustituye ni tapa el dial del quinto puzzle; no hay una unión adhesiva o de retención cautiva validada aún. No entregar a niños antes de asegurar la fijación.
 4. **Edición:** el asistente permite seleccionar colección, figura, expresión, altura y escenario, además de las dificultades independientes de las cinco caras y las dimensiones de la caja.
-5. **Compatibilidad:** se agregaron `Init.py` y `InitGui.py` en la raíz del complemento para que FreeCAD pueda cargar el Workbench; se corrigió la ruta de los iconos. Se pueden regenerar proyectos anteriores del esquema 2 a esquema 3, preservando sus cinco dificultades y medidas.
+5. **Compatibilidad:** se agregaron `Init.py` y `InitGui.py` en la raíz del complemento para que FreeCAD pueda cargar el Workbench; se corrigió la ruta de los iconos. Se pueden regenerar proyectos anteriores de los esquemas 2, 3 y 4, preservando sus cinco dificultades, medidas y mecanismos guardados.
 
 ## Montaje (solo prototipo)
 
 La figura queda **dentro** de la caja; la decoración grande queda **sobre** la tapa. Ambas son objetos CAD separados para permitir retirarlos y exportarlos individualmente. Los ojos y la boca están grabados para poder pintar los detalles sin pegar piezas muy pequeñas. Los dos pivotes del restaurante encajan teóricamente en huecos holgados de la tapa; todavía falta comprobar su montaje y diseñar una fijación permanente o cautiva.
 
-La caja **conserva cinco retos**: cuatro cierres laterales configurables de manera independiente y una leva superior. Cada lateral puede emplear una **rueda giratoria** o una **compuerta de dos pasos**: primero bajar 12 mm la compuerta y después deslizar 20 mm el cerrojo. Solo entonces se puede liberar la leva de la tapa. Hay verificación CAD del obstáculo mecánico y la carrera de liberación, pero **no** una simulación completa de rozamiento, montaje o esfuerzos. Cambiar Fácil/Medio/Difícil cambia marcas y geometría del bloqueo, pero **no** establece una dificultad infantil calibrada.
+La caja **conserva cinco retos**: cada lateral puede elegir por separado una rueda indexada, una compuerta de dos pasos, un cursor de laberinto o un cifrado de anillos; la tapa mantiene su leva independiente. La compuerta baja 12 mm antes de retirar 20 mm el cerrojo. El laberinto exige seguir un camino hasta desplazar el bloqueador; el cifrado requiere alinear de 2 a 4 anillos antes de bajar la misma compuerta. Fácil/Medio/Difícil cambia el recorrido del laberinto y usa 2/3/4 anillos con 2/4/8 posiciones en el cifrado. Las pruebas OpenCascade verifican sólidos, estados bloqueados y recorridos de liberación. **No** simulan rozamiento, montaje, desgaste ni calibran dificultad infantil.
 
 ## Instalación en FreeCAD 1.x
 
@@ -43,7 +45,7 @@ Los STL son prototipos: se debe revisar orientación, soportes y grosor de detal
 
 ## Seguridad y derechos
 
-- No entregar a menores ni vender como juguete hasta resolver retenedores de las ruedas laterales, eje y leva superior, unión de la escena, holguras, fractura de detalles, pellizcos, bordes y riesgos de piezas ingeribles, y cumplir las normas aplicables según mercado/edad.
+- No entregar a menores ni vender como juguete hasta resolver retenedores de ruedas, cursores, anillos, ejes y leva superior, unión de la escena, holguras, fractura de detalles, pellizcos, bordes y riesgos de piezas ingeribles, y cumplir las normas aplicables según mercado/edad.
 - No se incluyen elementos de Pokémon, Bluey, Paw Patrol u otras franquicias. Comida, Hamburguesita y Restaurante son conceptos geométricos originales sin personajes registrados.
 - Solo se han probado sólidos y algunos solapes estáticos en CAD, no la secuencia real de juego ni la duración de los mecanismos.
 
@@ -61,8 +63,10 @@ El test OCC requiere el paquete Python `cadquery`, empleado solo como kernel geo
 1. Ejecutar RS Maker en FreeCAD 1.x en el equipo real y corregir errores de arranque/GUI.
 2. Imprimir una muestra **de restaurante + chibi**, y una pieza de test de pivotes, para verificar detalles y resistencia.
 3. Diseñar retención física segura y, después, reducir mecanismos hasta alcanzar un formato coleccionable compacto.
-4. Añadir nuevas familias auténticas (laberinto y cifrado), además de las ruedas y la compuerta ya disponibles, y validar cada una con pruebas de movimiento.
-5. Calibrar los ajustes de Espacio, Playa y Comida, crear accesorios y permitir decoraciones importadas respetando licencias.
+4. Abrir la caja en FreeCAD 1.x, probar las cuatro familias en movimiento y corregir errores de interfaz o montaje.
+5. Imprimir cupones de tolerancia y validar retención, desgaste, ajuste de los anillos, fuerza de operación y encaje de chibis/escenas.
+6. Calibrar los perfiles de dificultad con usuarios; los niveles actuales cambian reglas y pasos pero todavía no han sido evaluados.
+7. Calibrar las colecciones y permitir decoraciones importadas respetando licencias.
 
 
 ### Colecciones originales — Espacio y Playa
@@ -104,6 +108,16 @@ CI comprueba BRep válidos con OpenCascade y simula con intersecciones del
 volumen una carrera intermedia de 8 mm bloqueada y liberada al bajar la
 compuerta. Esa prueba no equivale a ensayos de fricción ni a un mecanismo
 seguro para venta.
+
+
+## v0.5 — Laberinto y cifrado de anillos
+
+El selector lateral ofrece cuatro familias independientes por cara:
+
+- **Laberinto:** un cursor cautivo recorre una guía ranurada. Solo al llegar a la salida mueve el bloqueador fuera de toda la carrera de 20 mm del cerrojo. Fácil/Medio/Difícil usan recorridos con 4/6/10 giros; la guía, los pines de montaje y el cursor se exportan por separado.
+- **Cifrado:** 2/3/4 anillos giratorios llevan una ventana cada uno. Hay que alinear todas las ventanas y bajar la compuerta 12 mm para que el cerrojo pueda moverse. Los niveles usan 2/4/8 posiciones por anillo. La respuesta generada es determinista y queda en `cipher_profile()` para las pruebas del prototipo.
+
+OpenCascade comprueba sólidos únicos válidos, el bloqueo de una carrera de 8 mm y la liberación al resolver el recorrido o indexar todos los anillos. Esto aún no valida que cursor y compuerta se deslicen con fricción real, que los ejes resistan ciclos repetidos o que la fuerza de uso sea adecuada. Antes de entregar una unidad, revisa en FreeCAD el montaje de guías, topes y anillos y prueba cupones impresos. No es un juguete certificado.
 
 
 ## Exportar automáticamente por platos de impresión

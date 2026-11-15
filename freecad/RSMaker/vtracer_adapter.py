@@ -23,6 +23,7 @@ COMMANDS = set("MmLlHhVvCcSsQqTtZz")
 COUNTS = {"M":2,"L":2,"H":1,"V":1,"C":6,"S":4,"Q":4,"T":2}
 MAX_PIXELS = 3_250_000
 MAX_SVG = 12_000_000
+MAX_VECTOR_POINTS = 100_000
 CHILD = '''import sys
 try:
     import vtracer
@@ -87,9 +88,13 @@ def run_external(png,timeout=35):
     binary=python_executable()
     if not binary:
         raise RuntimeError("No se encontró Python externo con VTracer")
-    child=subprocess.run([binary,"-c",CHILD],input=png,
-                         stdout=subprocess.PIPE,stderr=subprocess.PIPE,
-                         timeout=timeout,check=False)
+    try:
+        child=subprocess.run([binary,"-c",CHILD],input=png,
+                             stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+                             timeout=timeout,check=False)
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(
+            "VTracer externo superó el límite de %s s" % timeout) from exc
     if child.returncode!=0:
         raise RuntimeError("VTracer externo no disponible (código %s): %s" %
                            (child.returncode,
@@ -106,10 +111,14 @@ def _flatness(p,a,b):
             else math.hypot(p[0]-a[0],p[1]-a[1]))
 
 
-def _flatten(a,b,c,d,tol=.34):
+def _flatten(a,b,c,d,tol=.34,max_points=MAX_VECTOR_POINTS):
+    if max_points<=0:
+        raise ValueError("VTracer generó demasiados puntos vectorizados")
     points=[]
     def visit(a,b,c,d,level):
         if level>=10 or max(_flatness(b,a,d),_flatness(c,a,d))<=tol:
+            if len(points)>=max_points:
+                raise ValueError("VTracer generó demasiados puntos vectorizados")
             points.append(d)
             return
         ab=((a[0]+b[0])*.5,(a[1]+b[1])*.5)
@@ -124,13 +133,15 @@ def _flatten(a,b,c,d,tol=.34):
     return points
 
 
-def path_rings(path):
-    """Closed M/L/H/V/C/S/Q/T/Z SVG subpaths; fail on unsupported syntax."""
+def path_rings(path,point_budget=None):
+    """Parse closed SVG subpaths under one shared vector-point budget."""
     if len(path)>MAX_SVG:
         raise ValueError("Ruta SVG demasiado grande")
     tokens=TOKEN.findall(path)
     if len(tokens)>700_000 or TOKEN.sub("",path).strip(" ,\n\r\t"):
         raise ValueError("Ruta SVG inválida")
+    if point_budget is None:
+        point_budget=[MAX_VECTOR_POINTS]
     loops=[]
     ring=[]
     current=(0.,0.)
@@ -142,6 +153,9 @@ def path_rings(path):
     def add(point):
         if not all(math.isfinite(v) and abs(v)<10_000_000 for v in point):
             raise ValueError("Coordenada SVG fuera de límites")
+        if point_budget[0]<=0:
+            raise ValueError("VTracer generó demasiados puntos vectorizados")
+        point_budget[0]-=1
         if not ring or math.dist(ring[-1],point)>1e-7:
             ring.append(point)
     while index<len(tokens):
@@ -207,7 +221,7 @@ def path_rings(path):
                    current[1]+2*(q[1]-current[1])/3)
                 b=(end[0]+2*(q[0]-end[0])/3,end[1]+2*(q[1]-end[1])/3)
                 control=q
-            for p in _flatten(current,a,b,end):
+            for p in _flatten(current,a,b,end,max_points=point_budget[0]):
                 add(p)
             current=end
         previous=command
@@ -285,6 +299,7 @@ def svg_rings(svg,mask,w,h):
     else:
         x0=y0=0.;sw=float(w);sh=float(h)
     rings=[]
+    point_budget=[MAX_VECTOR_POINTS]
     visited=[0]
     identity=(1.,0.,0.,1.,0.,0.)
 
@@ -299,7 +314,8 @@ def svg_rings(svg,mask,w,h):
             if visited[0]>12_000:
                 raise ValueError("Demasiados trazos SVG")
             if fill not in ("none","white","#fff","#ffffff","rgb(255,255,255)"):
-                for ring in path_rings(node.attrib.get("d","")):
+                for ring in path_rings(node.attrib.get("d",""),
+                                       point_budget=point_budget):
                     converted=[]
                     for x,y in ring:
                         gx=matrix[0]*x+matrix[2]*y+matrix[4]

@@ -1,9 +1,4 @@
-"""RS Maker 0.2: validated dimensions and per-face challenge settings.
-
-Five challenges are mandatory: frontal, right, back, left and top. Distinct
-mechanism families remain future work; the four side stations in 0.2 share a
-wheel-gated sliding latch, and the lid has a separate quarter-turn cam.
-"""
+"""Validated box dimensions, five independent challenge settings and mechanisms."""
 from dataclasses import dataclass
 from .collection import (COLLECTIONS, FIGURES, SCENES, EXPRESSIONS,
                          COLLECTION_OPTIONS)
@@ -13,11 +8,11 @@ DIFFICULTIES = ("Fácil", "Medio", "Difícil")
 THEMES = {"Ninguno": "", "Huellas": "paw", "Estrellas": "star", "Relámpagos": "bolt"}
 PUZZLES = {
     "cerrojo_rueda": {"name": "Cerrojo deslizante con rueda de bloqueo", "implemented": True},
-    "laberinto": {"name": "Laberinto mecánico", "implemented": False},
+    "laberinto": {"name": "Laberinto mecánico con cursor cautivo", "implemented": True},
     "secuencia": {"name": "Compuerta lineal: bajar y deslizar", "implemented": True},
-    "cifrado": {"name": "Combinación de símbolos", "implemented": False},
+    "cifrado": {"name": "Cifrado mecánico de anillos", "implemented": True},
 }
-# These are measurable geometry differences, NOT user-tested difficulty ratings.
+# These are geometry/game-step profiles, not calibrated player difficulty.
 DIAL_MARKS = {"Fácil": 2, "Medio": 4, "Difícil": 8}
 ARM_HEIGHT = {"Fácil": 7.5, "Medio": 9.0, "Difícil": 10.5}
 RELEASE_TRAVEL = 20.0
@@ -26,6 +21,23 @@ SIDE_MECHANISM_FIELDS = (
     "mecanismo_trasera","mecanismo_izquierda",
 )
 MECHANISM_FOR_FACE = dict(zip(FACES[:4],SIDE_MECHANISM_FIELDS))
+
+
+def difficulty_detail(mechanism, difficulty):
+    """Describe the rule/step count represented by one face's setting."""
+    if difficulty not in DIFFICULTIES:
+        raise ValueError("Dificultad desconocida: %s" % difficulty)
+    if mechanism == "laberinto":
+        from .maze_lock import path_for
+        _path, turns = path_for(difficulty)
+        return "%d giros" % turns
+    if mechanism == "cifrado":
+        from .cipher_lock import cipher_profile
+        profile = cipher_profile(difficulty)
+        return "%d anillos · %d posiciones" % (profile["rings"],profile["positions"])
+    if mechanism == "secuencia":
+        return "bajar 12 mm · deslizar 20 mm"
+    return "%d posiciones" % DIAL_MARKS[difficulty]
 
 
 @dataclass(frozen=True)

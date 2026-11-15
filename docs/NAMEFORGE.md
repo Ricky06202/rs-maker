@@ -251,6 +251,13 @@ activan el respaldo. La consola indica el número de contornos aceptados:
 `VTracer 12/14` significa que se tomaron doce contornos de VTracer y los
 otros dos permanecieron conservadores.
 
+La ejecución externa tiene un límite de **35 segundos**. Al leer el SVG,
+NameForge limita a **100 000 puntos vectoriales** la expansión acumulada de
+curvas y trazos, incluidos todos los elementos del archivo. Si una imagen
+supera ese presupuesto, se descarta la salida externa y se usa el trazador
+interno; así el SVG complejo no puede expandirse sin límite dentro del
+trabajador de FreeCAD.
+
 **NixOS:** el complemento busca un `python3` ejecutable que **pueda
 importar el módulo Python `vtracer`**. No es suficiente instalar
 solamente el ejecutable CLI `vtracer`: se necesita el binding Python
