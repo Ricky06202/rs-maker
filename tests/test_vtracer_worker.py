@@ -1,5 +1,6 @@
 """NameForge worker integration: optional VTracer never blocks normal CAD."""
 import importlib
+import subprocess
 import sys
 import types
 import unittest
@@ -65,6 +66,39 @@ class VTracerWorkerTests(unittest.TestCase):
                          "No lanzar tres subprocesos después del primer fallo")
         self.assertEqual(set(result["trace_methods"]),{"front","rear","cavity"})
         self.assertIn("front",result["vector_fallbacks"])
+        self.assertEqual(len(core.connected_components(
+            result["rear_mask"],self.w,self.h)),1)
+
+    def test_external_timeout_falls_back_once_to_cpu_tracer(self):
+        lamp=self._lamp()
+        timeout=subprocess.TimeoutExpired(cmd=["python"],timeout=35)
+        with patch.object(vtracer_adapter.subprocess,"run",
+                          side_effect=timeout) as run:
+            result=lamp.build_masks(self.cfg,self.prepared)
+        self.assertEqual(run.call_count,1)
+        self.assertIn("front",result["vector_fallbacks"])
+        self.assertIn("límite de 35 s",result["vector_fallbacks"]["front"])
+        self.assertTrue(all("VTracer" not in method
+                            for method in result["trace_methods"].values()))
+        self.assertEqual(len(core.connected_components(
+            result["rear_mask"],self.w,self.h)),1)
+
+    def test_overcomplex_vtracer_svg_falls_back_without_detaching_parts(self):
+        lamp=self._lamp()
+        curve=" C 0 1000000 1000000 0 0 0"
+        path="M 0 0"+curve*60+" Z"
+        svg=('<svg viewBox="0 0 %s %s"><path d="%s"/>'
+             '<path d="%s"/></svg>')%(self.w,self.h,path,path)
+        with patch.object(vtracer_adapter,"run_external",return_value=svg) as run:
+            result=lamp.build_masks(self.cfg,self.prepared)
+        self.assertEqual(run.call_count,1)
+        self.assertIn("front",result["vector_fallbacks"])
+        self.assertIn("demasiados puntos vectorizados",
+                      result["vector_fallbacks"]["front"])
+        self.assertTrue(all("VTracer" not in method
+                            for method in result["trace_methods"].values()))
+        self.assertEqual(len(core.connected_components(
+            result["front_mask"],self.w,self.h)),1)
         self.assertEqual(len(core.connected_components(
             result["rear_mask"],self.w,self.h)),1)
 
