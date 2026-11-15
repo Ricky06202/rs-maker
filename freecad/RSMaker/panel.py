@@ -2,7 +2,7 @@
 import os
 from dataclasses import replace
 from .config import (PuzzleConfig, PUZZLES, DIFFICULTIES, FACES, THEMES,
-                     DIAL_MARKS, MECHANISM_FOR_FACE)
+                     MECHANISM_FOR_FACE, difficulty_detail)
 from .collection import (COLLECTIONS, FIGURES, SCENES, EXPRESSIONS,
                          COLLECTION_OPTIONS, COLLECTION_DEFAULTS)
 from .project import create_project, regenerate_project, config_from_project
@@ -19,7 +19,7 @@ class PuzzleDialog(QtWidgets.QDialog):
     def __init__(self, root=None,parent=None):
         super().__init__(parent)
         self.root = root
-        self.setWindowTitle("RS Maker 0.4 | "+("Editar caja" if root else "Nueva caja de cinco puzzles"))
+        self.setWindowTitle("RS Maker 0.5 | "+("Editar caja" if root else "Nueva caja de cinco puzzles"))
         self.setMinimumWidth(530)
         self.resize(620,750)
         self.setModal(False)
@@ -35,8 +35,8 @@ class PuzzleDialog(QtWidgets.QDialog):
         heading.setStyleSheet("font-size: 17px; font-weight: 600;")
         main.addWidget(heading)
         note=QtWidgets.QLabel(
-            "Cuatro laterales: gira una rueda o baja una compuerta según "
-            "el mecanismo elegido, y luego desliza cada cerrojo. "
+            "Elige por separado entre rueda, compuerta, laberinto y cifrado "
+            "en cada lateral. Resuelve cada mecanismo y desliza su cerrojo. "
             "Finalmente gira la leva de la tapa para liberar el quinto cierre.")
         note.setWordWrap(True)
         main.addWidget(note)
@@ -55,8 +55,10 @@ class PuzzleDialog(QtWidgets.QDialog):
                     continue
                 mechanism.addItem(item["name"],key)
             mechanism.setToolTip(
-                "Rueda: girar y retirar cerrojo. Secuencia: bajar "
-                "compuerta 12 mm y después retirar cerrojo 20 mm. "
+                "Rueda: indexar y retirar cerrojo. Compuerta: bajar 12 mm. "
+                "Laberinto: guiar el cursor hasta la salida. Cifrado: "
+                "alinear los anillos antes de bajar 12 mm. Cada cerrojo "
+                "se retira 20 mm. "
                 "La leva de la tapa se conserva siempre.")
             self.mechanisms[MECHANISM_FOR_FACE[face]]=mechanism
             lib_form.addRow(face,mechanism)
@@ -73,10 +75,13 @@ class PuzzleDialog(QtWidgets.QDialog):
         self.faces={}
         for face in FACES:
             chooser=QtWidgets.QComboBox()
+            mechanism=(self.mechanisms[MECHANISM_FOR_FACE[face]].currentData()
+                       if face in MECHANISM_FOR_FACE else "cerrojo_rueda")
             for label in DIFFICULTIES:
-                chooser.addItem("%s · %d marcas"%(label,DIAL_MARKS[label]),label)
-            chooser.setToolTip("Cambian las marcas y la geometría del bloqueo; "
-                               "la dificultad de juego no está validada con niños")
+                chooser.addItem("%s · %s"%(label,difficulty_detail(mechanism,label)),label)
+            chooser.setToolTip(
+                "Cambia el número de posiciones, anillos o giros del recorrido "
+                "según el mecanismo. Los perfiles aún no están calibrados con usuarios.")
             self.faces[FIELD_BY_FACE[face]]=chooser
             dform.addRow(face,chooser)
         body.addWidget(difficulties)
@@ -234,19 +239,35 @@ class PuzzleDialog(QtWidgets.QDialog):
             cfg=self.make_config()
             x,y,z=cfg.prize_interior
             self.sync_collection()
+            for face in FACES:
+                mechanism=(cfg.face_mechanism(face) if face in MECHANISM_FOR_FACE
+                           else "cerrojo_rueda")
+                chooser=self.faces[FIELD_BY_FACE[face]]
+                for index,label in enumerate(DIFFICULTIES):
+                    chooser.setItemText(index,"%s · %s"%(label,
+                                            difficulty_detail(mechanism,label)))
             art = (" · Colección %s · Figura: %s (%.1f mm) · Escena: %s" %
                    (cfg.collection,cfg.figure,cfg.figure_height,cfg.scene)
                    if cfg.collection!="Ninguna" else " · Sin colección")
-            sequence_count=sum(
-                cfg.face_mechanism(face)=="secuencia" for face in FACES[:4])
+            mechanism_counts={key:sum(cfg.face_mechanism(face)==key
+                                      for face in FACES[:4])
+                              for key in PUZZLES}
+            details=" · ".join("%s: %s"%(face,
+                       difficulty_detail(cfg.face_mechanism(face),
+                                         cfg.face_difficulty(face))
+                       if face in MECHANISM_FOR_FACE else
+                       difficulty_detail("cerrojo_rueda",cfg.tapa))
+                       for face in FACES)
             self.preview.setText(
                 "5/5 caras activas · Espacio conservador del premio: "
                 "%.1f × %.1f × %.1f mm.\n"
-                "%d compuertas lineales y %d ruedas laterales; "
-                "la leva superior permanece como quinto reto. "
-                "Secuencia: bajar compuerta y luego deslizar cerrojo. "
-                "Prototipo físico no validado%s."
-                %(x,y,z,sequence_count,4-sequence_count,art))
+                "Mecanismos: %d ruedas, %d compuertas, %d laberintos y %d cifrados. "
+                "La leva permanece como quinto reto.\n%s\n"
+                "Perfiles de geometría, sin calibración con usuarios; prototipo "
+                "físico pendiente%s."
+                %(x,y,z,mechanism_counts["cerrojo_rueda"],
+                  mechanism_counts["secuencia"],mechanism_counts["laberinto"],
+                  mechanism_counts["cifrado"],details,art))
             self.create.setEnabled(True)
         except ValueError as exc:
             self.preview.setText("Corrige: "+str(exc))

@@ -7,7 +7,7 @@ DIFFICULTY_FIELDS = ("frontal", "derecha", "trasera", "izquierda", "tapa")
 ART_FIELDS = ("collection", "figure", "scene", "expression")
 ALL_FIELDS = (DIMENSION_FIELDS + DIFFICULTY_FIELDS +
               SIDE_MECHANISM_FIELDS + ("theme", "figure_height") + ART_FIELDS)
-GENERATOR_VERSION = "0.4.0"
+GENERATOR_VERSION = "0.5.0"
 
 
 def _set_parameters(root, cfg, create=False):
@@ -33,7 +33,7 @@ def _set_parameters(root, cfg, create=False):
     root.RSMakerSchema = 4
     root.GeneratorVersion = GENERATOR_VERSION
     root.Notes = ("Cinco retos mecánicos, cuatro laterales con familia elegible "
-                  "(rueda o compuerta lineal) y leva superior; arte original "
+                  "(rueda, compuerta, laberinto o cifrado) y leva superior; arte original "
                   "con mini escenario y chibi. Prototipo sin validar físicamente: "
                   "retención, resistencia y holguras requieren impresión de prueba.")
     root.Theme = cfg.theme

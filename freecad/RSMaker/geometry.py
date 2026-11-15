@@ -1,9 +1,9 @@
-"""Five-station CAD prototype: four side latches + one lid cam + original art.
+"""Five-station CAD prototype: four side puzzle families + one lid cam.
 
 FreeCAD Part shapes; millimetres. Four lateral locks can independently use
-a rotary wheel or a two-step linear gate (drop the gate before sliding the
-bolt). Every bolt still enters a horizontal lug under the upper lid, which
-has a fifth independent cam. Real actuation, strength, retaining hardware
+a rotary wheel, two-step gate, captured maze cursor, or coded tumbler comb.
+Every bolt still enters a horizontal lug under the upper lid, which has a
+fifth independent cam. Real actuation, strength, retaining hardware
 and safety MUST be validated with a printed prototype.
 
 All parts are modeled in the LOCKED assembly position, not plate-laid for
@@ -15,6 +15,8 @@ from .config import (PuzzleConfig, FACES, DIAL_MARKS, ARM_HEIGHT,
 from .collection import (make_restaurant, make_hamburger, make_side_emboss,
                          restaurant_lid_sockets)
 from .sequential_lock import make_sequential_lock
+from .maze_lock import make_maze_lock
+from .cipher_lock import make_cipher_lock
 from .themed_collections import (make_space_scene, make_beach_scene,
                                  make_astro_chibi, make_crab_chibi,
                                  make_themed_side_emboss)
@@ -61,9 +63,9 @@ def _motif(kind, cx, cy, z, size, height, Part, V):
 def build_shapes(cfg):
     """Return (part_key, solid, color) in closed assembly coordinates.
 
-    Physical release sequence per side: rotate the wheel or lower the linear
-    gate 12mm, pull its latch 20mm, then turn the lid cam 90° and lift.
-    Wheel shaft, linear gate cap and top cam require retention validation.
+    Side release sequence: solve the selected wheel/maze/cipher or lower its
+    linear gate, then pull that latch 20mm. Turn the top cam to release the lid.
+    All moving parts require print and retention validation.
     """
     cfg.validate()
     import FreeCAD as App
@@ -112,8 +114,22 @@ def build_shapes(cfg):
         # Short opening of the inner wall at the knob stem route, but no cut
         # through the wall's very top; therefore it retains an upper rim.
         base = base.cut(_to_global(slot,face,W,D,V))
-        if cfg.face_mechanism(face)=="cerrojo_rueda":
+        mechanism=cfg.face_mechanism(face)
+        if mechanism=="cerrojo_rueda":
             base = base.cut(_to_global(shaft_hole,face,W,D,V))
+        elif mechanism=="laberinto":
+            _guide,_cursor,anchors=make_maze_lock(
+                Part,V,pivot_u,z_bolt,cfg.face_difficulty(face))
+            for x,z in anchors:
+                mount_hole=cyl(1.65,w+1.0,V(x,-.5,z),V(0,1,0))
+                base=base.cut(_to_global(mount_hole,face,W,D,V))
+        elif mechanism=="cifrado":
+            _rings,_gate,rails,_cap,axles,shaft_holes,_code=make_cipher_lock(
+                Part,V,pivot_u,z_bolt,w,cfg.face_difficulty(face))
+            for hole in shaft_holes:
+                base=base.cut(_to_global(hole,face,W,D,V))
+            base=base.fuse(_to_global(axles,face,W,D,V))
+            base=base.fuse(_to_global(rails,face,W,D,V))
         base = base.fuse(_to_global(body_mod,face,W,D,V))
         lid = lid.fuse(_to_global(lug,face,W,D,V))
 
@@ -127,7 +143,7 @@ def build_shapes(cfg):
         parts.append(("C%u_Cerrojo" % (index+1),
                       _to_global(latch,face,W,D,V),SIDE_COLORS[index]))
 
-        if cfg.face_mechanism(face)=="cerrojo_rueda":
+        if mechanism=="cerrojo_rueda":
             # Existing rotary blocker; backward-compatible geometry for
             # projects built before the second mechanism was introduced.
             axle = cyl(2.0,w+7.7,V(pivot_u,-7,wheel_z),V(0,1,0))
@@ -141,7 +157,7 @@ def build_shapes(cfg):
                 wheel = wheel.fuse(pip)
             parts.append(("C%u_Rueda" % (index+1),
                           _to_global(wheel,face,W,D,V),(.95,.83,.39)))
-        else:
+        elif mechanism=="secuencia":
             # Two distinct motions: lower a separate captive gate 12mm,
             # then slide the same lid-engaging bolt horizontally 20mm.
             # No rotary wheel and no unused shaft bore in the wall.
@@ -151,6 +167,25 @@ def build_shapes(cfg):
                           _to_global(gate,face,W,D,V),(.83,.64,.44)))
             parts.append(("C%u_SeguroCompuerta" % (index+1),
                           _to_global(cap,face,W,D,V),(.91,.83,.64)))
+        elif mechanism=="laberinto":
+            guide,cursor,_anchors=make_maze_lock(
+                Part,V,pivot_u,z_bolt,cfg.face_difficulty(face))
+            parts.append(("C%u_Laberinto_Guia"%(index+1),
+                          _to_global(guide,face,W,D,V),(.70,.78,.88)))
+            parts.append(("C%u_Laberinto_Cursor"%(index+1),
+                          _to_global(cursor,face,W,D,V),(.94,.55,.31)))
+        else:
+            rings,gate,_rails,cap,_axles,_holes,_code=make_cipher_lock(
+                Part,V,pivot_u,z_bolt,w,cfg.face_difficulty(face))
+            for ring_index,ring in enumerate(rings,1):
+                parts.append(("C%u_Cifrado_Anillo_%u"%(index+1,ring_index),
+                              _to_global(ring,face,W,D,V),(.91,.72,.36)))
+            parts.extend((
+                ("C%u_Cifrado_Compuerta"%(index+1),
+                 _to_global(gate,face,W,D,V),(.76,.58,.41)),
+                ("C%u_Cifrado_Seguro"%(index+1),
+                 _to_global(cap,face,W,D,V),(.91,.83,.64)),
+            ))
 
     # Independent TOP dial, hooked under a fixed interior shelf of the base.
     dx,dy = W-32,D-32

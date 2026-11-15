@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from freecad.RSMaker.config import (PuzzleConfig,FACES,DIFFICULTIES,DIAL_MARKS,
-                                    PUZZLES,can_open)
+                                    PUZZLES,can_open,difficulty_detail)
 
 class TestConfig(unittest.TestCase):
     def test_five_mandatory_faces(self):
@@ -29,10 +29,11 @@ class TestConfig(unittest.TestCase):
                 self.assertEqual(can_open(state[:4],state[4]),all(state))
         with self.assertRaises(ValueError): can_open([True,True],True)
 
-    def test_unimplemented_families_not_claimed(self):
+    def test_all_four_mechanical_families_are_available(self):
         self.assertTrue(PUZZLES['cerrojo_rueda']['implemented'])
-        self.assertFalse(PUZZLES['laberinto']['implemented'])
+        self.assertTrue(PUZZLES['laberinto']['implemented'])
         self.assertTrue(PUZZLES['secuencia']['implemented'])
+        self.assertTrue(PUZZLES['cifrado']['implemented'])
 
     def test_mixed_mechanisms_keep_five_independent_challenges(self):
         cfg=PuzzleConfig(mecanismo_frontal="secuencia",
@@ -40,7 +41,11 @@ class TestConfig(unittest.TestCase):
         self.assertEqual(cfg.face_mechanism("Frontal"),"secuencia")
         self.assertEqual(cfg.face_mechanism("Derecha"),"cerrojo_rueda")
         self.assertEqual(len(cfg.difficulties),5)
-        for bad in ("laberinto","cifrado","inexistente"):
+        cfg=PuzzleConfig(mecanismo_frontal="laberinto",
+                         mecanismo_derecha="cifrado").validate()
+        self.assertEqual(cfg.face_mechanism("Frontal"),"laberinto")
+        self.assertEqual(cfg.face_mechanism("Derecha"),"cifrado")
+        for bad in ("inexistente",):
             with self.subTest(bad=bad),self.assertRaisesRegex(
                     ValueError,"Mecanismo lateral"):
                 PuzzleConfig(mecanismo_frontal=bad).validate()
@@ -58,5 +63,14 @@ class TestConfig(unittest.TestCase):
         self.assertGreater(w,100)
         self.assertGreater(d,100)
         self.assertGreater(h,50)
+
+    def test_mechanical_difficulty_changes_rules_and_steps(self):
+        maze=[difficulty_detail("laberinto",d) for d in DIFFICULTIES]
+        cipher=[difficulty_detail("cifrado",d) for d in DIFFICULTIES]
+        self.assertEqual(len(set(maze)),3)
+        self.assertIn("2 anillos",cipher[0])
+        self.assertIn("3 anillos",cipher[1])
+        self.assertIn("4 anillos",cipher[2])
+        self.assertNotEqual(cipher[0],cipher[2])
 
 if __name__ == '__main__':unittest.main()
