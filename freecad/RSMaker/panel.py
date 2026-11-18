@@ -19,7 +19,7 @@ class PuzzleDialog(QtWidgets.QDialog):
     def __init__(self, root=None,parent=None):
         super().__init__(parent)
         self.root = root
-        self.setWindowTitle("RS Maker 0.5 | "+("Editar caja" if root else "Nueva caja de cinco puzzles"))
+        self.setWindowTitle("RS Maker 0.6 | "+("Editar caja" if root else "Nueva caja de cinco puzzles"))
         self.setMinimumWidth(530)
         self.resize(620,750)
         self.setModal(False)

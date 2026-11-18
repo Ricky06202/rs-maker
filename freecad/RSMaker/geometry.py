@@ -60,6 +60,28 @@ def _motif(kind, cx, cy, z, size, height, Part, V):
     raise ValueError("Motivo desconocido")
 
 
+def _validate_parts(parts):
+    """Reject disconnected or invalid outputs before they enter a document."""
+    for key, shape, _color in parts:
+        is_null = getattr(shape, "isNull", None)
+        if is_null is not None and is_null():
+            raise ValueError("Pieza %s: geometría vacía." % key)
+        if not shape.isValid():
+            raise ValueError("Pieza %s: sólido CAD inválido." % key)
+        solids = getattr(shape, "Solids", None)
+        if solids is not None and len(solids) != 1:
+            raise ValueError(
+                "Pieza %s: debe ser un sólido único, se obtuvieron %d."
+                % (key, len(solids))
+            )
+        if shape.Volume <= 1e-7:
+            raise ValueError("Pieza %s: sólido sin volumen." % key)
+        is_closed = getattr(shape, "isClosed", None)
+        if is_closed and not is_closed():
+            raise ValueError("Pieza %s: sólido no cerrado." % key)
+    return parts
+
+
 def build_shapes(cfg):
     """Return (part_key, solid, color) in closed assembly coordinates.
 
@@ -266,4 +288,4 @@ def build_shapes(cfg):
                      _motif(motif,W*.45,D*.49,body_h+g+lid_t,
                             min(W,D)*.19,.85,Part,V),
                      (.94,.38,.47)))
-    return main
+    return _validate_parts(main)

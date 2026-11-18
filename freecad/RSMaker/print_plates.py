@@ -116,6 +116,10 @@ def _generated_objects(root):
         if (not allow_compounds and hasattr(shape,"Solids") and
                 len(shape.Solids)!=1):
             raise ValueError("Pieza %s: no es un sólido único." % key)
+        if hasattr(shape,"Solids") and not shape.Solids:
+            raise ValueError("Pieza %s: no contiene sólidos." % key)
+        if hasattr(shape,"isClosed") and not shape.isClosed():
+            raise ValueError("Pieza %s: sólido CAD abierto." % key)
         objects.append((key,obj))
     if not objects:
         raise ValueError("No se encontraron sólidos generados.")
@@ -130,9 +134,22 @@ def _bounds(obj):
 
 
 def _mesh(obj, meshpart):
-    return meshpart.meshFromShape(
+    mesh=meshpart.meshFromShape(
         Shape=obj.Shape,LinearDeflection=0.10,
         AngularDeflection=0.30,Relative=False)
+    count=getattr(mesh,"CountFacets",None)
+    if callable(count):
+        count=count()
+    if count is not None and int(count)<=0:
+        raise ValueError("Pieza %s: la malla STL quedó vacía." %
+                         obj.RSMakerPartKey)
+    is_solid=getattr(mesh,"isSolid",None)
+    if is_solid is not None and not is_solid():
+        raise ValueError(
+            "Pieza %s: la malla STL no es cerrada (posibles bordes no "
+            "manifold o huecos)." % obj.RSMakerPartKey
+        )
+    return mesh
 
 
 def export_separate(root, folder, keep_xy=False):

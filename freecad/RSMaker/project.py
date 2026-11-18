@@ -7,7 +7,7 @@ DIFFICULTY_FIELDS = ("frontal", "derecha", "trasera", "izquierda", "tapa")
 ART_FIELDS = ("collection", "figure", "scene", "expression")
 ALL_FIELDS = (DIMENSION_FIELDS + DIFFICULTY_FIELDS +
               SIDE_MECHANISM_FIELDS + ("theme", "figure_height") + ART_FIELDS)
-GENERATOR_VERSION = "0.5.0"
+GENERATOR_VERSION = "0.6.0"
 
 
 def _set_parameters(root, cfg, create=False):

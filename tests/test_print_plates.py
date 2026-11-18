@@ -221,6 +221,20 @@ class ExportTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"CAD inválido"):
             plates._generated_objects(root)
 
+    def test_non_manifold_stl_mesh_is_rejected_before_write(self):
+        shape=FakeShape("Broken",0,0,0,10,10,10)
+        obj=types.SimpleNamespace(RSMakerPartKey="Broken",Shape=shape)
+        class OpenMesh:
+            CountFacets=12
+            def isSolid(self):
+                return False
+        class OpenMeshPart:
+            @staticmethod
+            def meshFromShape(**kwargs):
+                return OpenMesh()
+        with self.assertRaisesRegex(ValueError,"no es cerrada"):
+            plates._mesh(obj,OpenMeshPart)
+
 
 if __name__=="__main__":
     unittest.main()

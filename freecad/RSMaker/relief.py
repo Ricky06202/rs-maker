@@ -92,17 +92,16 @@ def viewport_mesh_quality(mode):
 
 
 def _svg_xml(cfg, previous=None, previous_path=None):
+    from .image_safety import validate_source_bytes
     if previous is not None and previous_path == cfg.svg_path:
         # Embedded copy guarantees reproducibility even if source was moved.
+        validate_source_bytes(previous.encode("utf-8"), ".svg")
         return previous
     if not os.path.isfile(cfg.svg_path):
         raise ValueError("No se encuentra el SVG: " + cfg.svg_path)
-    if os.path.getsize(cfg.svg_path) > 2_000_000:
-        raise ValueError("SVG demasiado grande (máximo 2 MB).")
     with open(cfg.svg_path, "rb") as handle:
         data = handle.read()
-    if b"<!DOCTYPE" in data.upper() or b"<!ENTITY" in data.upper():
-        raise ValueError("Exporta el SVG sin entidades externas ni DOCTYPE.")
+    validate_source_bytes(data, ".svg")
     return data.decode("utf-8-sig")
 
 
