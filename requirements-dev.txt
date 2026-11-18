@@ -1,0 +1,4 @@
+# Optional native-kernel and vectorization checks. FreeCAD remains a host
+# dependency and is not installed through pip.
+cadquery==2.6.1
+vtracer==0.6.15

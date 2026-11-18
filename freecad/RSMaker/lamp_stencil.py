@@ -67,20 +67,22 @@ def _image_to_mask(image, threshold=45):
 
 def source_bytes(path,embedded=None):
     """Return the source content without altering the user's original."""
+    from .image_safety import MAX_SOURCE_BYTES, validate_source_bytes
     if embedded is not None:
+        validate_source_bytes(embedded, os.path.splitext(path)[1].lower())
         return embedded
-    if os.path.getsize(path)>15_000_000:
+    if os.path.getsize(path)>MAX_SOURCE_BYTES:
         raise ValueError('Imagen demasiado grande (máximo 15 MB).')
     with open(path,'rb') as f:
         data=f.read()
-    if path.lower().endswith('.svg') and (
-            b'<!doctype' in data.lower() or b'<!entity' in data.lower()):
-        raise ValueError('Exporta el SVG sin DOCTYPE ni entidades externas.')
+    validate_source_bytes(data, os.path.splitext(path)[1].lower())
     return data
 
 
 def _qt_image(source,extension,w,h):
     """Rasterize source on a neutral matte, preserving aspect ratio."""
+    from .image_safety import validate_source_bytes
+    validate_source_bytes(source, extension)
     qimg=QtGui.QImage(w,h,QtGui.QImage.Format_ARGB32)
     qimg.fill(QtGui.QColor(255,255,255))
     painter=QtGui.QPainter(qimg)

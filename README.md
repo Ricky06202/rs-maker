@@ -1,6 +1,11 @@
-> **Nuevo módulo (en desarrollo):** RS Maker incluye el botón único **Crear…**, con un catálogo para elegir **Caja puzzle** o **NameForge (SVG + nombre)**. NameForge acepta **SVG, PNG, JPG y WebP** y ofrece GPU AMD/OpenCL opcional (con respaldo CPU y mediciones de tiempo): en modo caja convierte la imagen a colores planos sobre superficie lisa; en modo lámpara crea **silueta y nombre calados (huecos reales)** con puentes automáticos para evitar partes sueltas. Un checkbox alterna entre **caja maciza** y **lámpara hueca** (frente calado + carcasa única con marco y tapa trasera fusionados). Puedes editar texto, imagen, fuente y profundidad; ancho y alto escalan siempre proporcionalmente, y el botón **Sugerir dimensiones** propone tamaño según el detalle. Los cuerpos STL deben importarse al laminador como partes alineadas de **un mismo objeto multicolor**; el complemento aún no exporta 3MF coloreado. Ya no existe el límite arbitrario de 350 regiones SVG. Consulta [la guía de NameForge](docs/NAMEFORGE.md). Integrado en GitHub, pendiente de validación con FreeCAD real y una impresión de prueba.
+> **RS Maker 0.6:** el botón **Crear…** reúne la **caja puzzle** y **NameForge (imagen + nombre)**. NameForge acepta SVG, PNG, JPG y WebP; usa VTracer opcional en un proceso aislado o el trazador interno, posteriza cajas en capas multicolor y genera lámparas de frente calado con carcasa monolítica. Las entradas se prevalidan antes de Qt/OpenCascade, los BRep deben ser sólidos válidos y las mallas STL deben estar cerradas antes de exportarse. Los STL conservan las piezas separadas, pero aún no se exporta 3MF coloreado.
 
-# RS Maker v0.5 — Caja puzzle de cinco retos y biblioteca mecánica
+> Consulta [NameForge](docs/NAMEFORGE.md) y [Linux/NixOS](docs/LINUX_NIXOS.md).
+> Las comprobaciones CAD no sustituyen las pruebas en FreeCAD real, laminador,
+> cupones de tolerancia, montaje físico ni certificación de seguridad. No
+> consideres una pieza lista para fabricar o comercializar por pasar las pruebas.
+
+# RS Maker v0.6 — Caja puzzle de cinco retos y biblioteca mecánica
 
 **Estado:** prototipo CAD de ingeniería para adultos, **NO** juguete infantil validado o listo para vender. La geometría y sus pruebas OpenCascade están automatizadas; todavía falta abrirlo en FreeCAD real, ensamblar una impresión y comprobar el movimiento físico. v0.5 añade dos familias mecánicas laterales.
 

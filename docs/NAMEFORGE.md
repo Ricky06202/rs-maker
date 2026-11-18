@@ -176,6 +176,13 @@ CPU (sin importar OpenCV/OpenCL) y contornos poligonales subpíxel para
 todos los diseños durante una ejecución. No modifica configuraciones
 persistentes ni requiere desinstalar controladores AMD.
 
+Antes de Qt o importSVG se prevalidan todas las fuentes: máximo 15 MB,
+25 megapíxeles y 20 000 px por lado para PNG/JPG/WebP/BMP. Los SVG se
+analizan de forma estructural para rechazar entidades, scripts, recursos
+externos y una complejidad que podría saturar el motor nativo. El SVG
+posterizado vuelve a pasar la misma validación antes de entrar en
+OpenCascade.
+
 NameForge guarda marcadores de etapa con `fsync` en el archivo
 `$XDG_CACHE_HOME/rs-maker/nameforge-crash.log` (o
 `~/.cache/rs-maker/nameforge-crash.log` si no existe XDG_CACHE_HOME).
@@ -251,7 +258,8 @@ activan el respaldo. La consola indica el número de contornos aceptados:
 `VTracer 12/14` significa que se tomaron doce contornos de VTracer y los
 otros dos permanecieron conservadores.
 
-La ejecución externa tiene un límite de **35 segundos**. Al leer el SVG,
+La ejecución externa tiene límites de **35 segundos, 1 GiB de espacio de
+direcciones y 30 segundos de CPU cuando el sistema los admite**. Al leer el SVG,
 NameForge limita a **100 000 puntos vectoriales** la expansión acumulada de
 curvas y trazos, incluidos todos los elementos del archivo. Si una imagen
 supera ese presupuesto, se descarta la salida externa y se usa el trazador

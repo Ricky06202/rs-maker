@@ -26,6 +26,19 @@ MAX_SVG = 12_000_000
 MAX_VECTOR_POINTS = 100_000
 CHILD = '''import sys
 try:
+    try:
+        import resource
+        address_limit=1024*1024*1024
+        for kind,value in (
+                (resource.RLIMIT_AS,address_limit),
+                (resource.RLIMIT_CPU,30)):
+            soft,hard=resource.getrlimit(kind)
+            if hard == resource.RLIM_INFINITY or hard > value:
+                new_soft=(value if soft == resource.RLIM_INFINITY
+                          else min(value,soft))
+                resource.setrlimit(kind,(new_soft,hard))
+    except (ImportError,AttributeError,OSError,ValueError):
+        pass
     import vtracer
     data=sys.stdin.buffer.read()
     if hasattr(vtracer,"Config"):

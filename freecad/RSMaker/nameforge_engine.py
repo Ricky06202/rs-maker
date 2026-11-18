@@ -115,8 +115,10 @@ def _svg_faces(svg_xml, progress=None):
     """Import only once per XML digest; detached BReps survive document close."""
     import FreeCAD as App
     import importSVG
+    from .image_safety import validate_source_bytes
     from .relief import _faces, _svg_color
 
+    validate_source_bytes(svg_xml.encode("utf-8"), ".svg")
     key = sha256(svg_xml.encode("utf-8")).hexdigest()
     cached = _SVG_CACHE.get(key)
     if cached is not None:
